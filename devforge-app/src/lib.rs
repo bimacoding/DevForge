@@ -1,4 +1,5 @@
 pub mod about;
+pub mod ai;
 pub mod alert;
 pub mod app;
 pub mod code_action;

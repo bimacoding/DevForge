@@ -79,6 +79,21 @@ windows = "default"
 [terminal.profiles]
 default = {}
 
+[ai]
+enabled = true
+default-mode = "ask"
+provider = "openai-compatible"
+model = "gpt-4.1"
+api-key = ""
+base-url = "https://api.openai.com/v1"
+temperature = 0.2
+max-tokens = 4096
+context-limit = 128000
+max-iterations = 5
+tool-call-limit = 40
+auto-run-safe-terminal = false
+require-plan-approval = true
+
 # [terminal.profiles.example]
 # command     = "cargo"
 # arguments   = ["run"]

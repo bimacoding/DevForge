@@ -44,7 +44,7 @@ pub fn default_panel_order() -> PanelOrder {
     );
     order.insert(
         PanelPosition::RightTop,
-        im::vector![PanelKind::DocumentSymbol,],
+        im::vector![PanelKind::DocumentSymbol, PanelKind::Ai,],
     );
 
     order
@@ -63,6 +63,7 @@ pub enum PanelSection {
     Variable,
     StackFrame,
     Breakpoint,
+    AiChat,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -181,6 +181,7 @@ pub struct WindowTabData {
     pub source_control: SourceControlData,
     pub rename: RenameData,
     pub global_search: GlobalSearchData,
+    pub ai: crate::ai::AiData,
     pub call_hierarchy_data: CallHierarchyData,
     pub about_data: AboutData,
     pub alert_data: AlertBoxData,
@@ -520,6 +521,7 @@ impl WindowTabData {
             common.clone(),
             proxy.core_rpc.clone(),
         );
+        let ai = crate::ai::AiData::new(cx, main_split.editors, common.clone());
 
         {
             let notification = create_signal_from_channel(term_notification_rx);
@@ -558,6 +560,7 @@ impl WindowTabData {
             plugin,
             rename,
             global_search,
+            ai,
             call_hierarchy_data: CallHierarchyData {
                 root: cx.create_rw_signal(None),
                 common: common.clone(),
@@ -1267,6 +1270,9 @@ impl WindowTabData {
             ToggleSearchFocus => {
                 self.toggle_panel_focus(PanelKind::Search);
             }
+            ToggleAiFocus => {
+                self.toggle_panel_focus(PanelKind::Ai);
+            }
             ToggleTerminalVisual => {
                 self.toggle_panel_visual(PanelKind::Terminal);
             }
@@ -1287,6 +1293,9 @@ impl WindowTabData {
             }
             ToggleSearchVisual => {
                 self.toggle_panel_visual(PanelKind::Search);
+            }
+            ToggleAiVisual => {
+                self.toggle_panel_visual(PanelKind::Ai);
             }
             FocusEditor => {
                 self.common.focus.set(Focus::Workbench);
@@ -2349,6 +2358,9 @@ impl WindowTabData {
             Focus::Panel(PanelKind::SourceControl) => {
                 Some(keypress.key_down(event, &self.source_control))
             }
+            Focus::Panel(PanelKind::Ai) => {
+                Some(keypress.key_down(event, &self.ai))
+            }
             _ => None,
         };
 
@@ -2635,9 +2647,10 @@ impl WindowTabData {
                 // in those cases.
                 self.panel.is_panel_visible(&kind)
             }
-            PanelKind::Terminal | PanelKind::SourceControl | PanelKind::Search => {
-                self.is_panel_focused(kind)
-            }
+            PanelKind::Terminal
+            | PanelKind::SourceControl
+            | PanelKind::Search
+            | PanelKind::Ai => self.is_panel_focused(kind),
         };
         if should_hide {
             self.hide_panel(kind);

@@ -29,7 +29,7 @@ use serde_json::Value;
 use crate::{
     command::CommandExecuted,
     config::{
-        DropdownInfo, LapceConfig, color::LapceColor, core::CoreConfig,
+        DropdownInfo, LapceConfig, ai::AiConfig, color::LapceColor, core::CoreConfig,
         editor::EditorConfig, icon::LapceIcons, terminal::TerminalConfig,
         ui::UIConfig,
     },
@@ -180,6 +180,12 @@ impl SettingsData {
                     &TerminalConfig::FIELDS[..],
                     &TerminalConfig::DESCS[..],
                     into_settings_map(&config.terminal),
+                ),
+                (
+                    "AI",
+                    &AiConfig::FIELDS[..],
+                    &AiConfig::DESCS[..],
+                    into_settings_map(&config.ai),
                 ),
             ] {
                 let pos = cx.create_rw_signal(Point::new(0.0, item_height_accum));

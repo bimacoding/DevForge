@@ -1,3 +1,4 @@
+pub mod ai_view;
 pub mod call_hierarchy_view;
 pub mod data;
 pub mod debug_view;

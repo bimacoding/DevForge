@@ -26,7 +26,7 @@ name = "devforge-proxy"
 path = "devforge-proxy/src/bin/devforge-proxy.rs"
 
 [workspace]
-members = ["devforge-app", "devforge-proxy", "devforge-rpc", "devforge-core"]
+members = ["devforge-app", "devforge-proxy", "devforge-rpc", "devforge-core", "devforge-agent"]
 
 [workspace.package]
 version      = "0.4.6"
@@ -60,7 +60,7 @@ regex             = { version = "1.10.5" }
 remain            = { version = "0.2" }
 semver            = { version = "1.0" }
 reqwest           = { version = "0.11", features = ["blocking", "json", "socks"] }
-serde             = { version = "1.0" }
+serde             = { version = "1.0", features = ["derive"] }
 serde_json        = { version = "1.0" }
 smallvec          = { version = "1.15.1" }
 strum             = { version = "0.27.1" }
@@ -81,6 +81,7 @@ lapce-xi-rope = { version = "0.3.2", features = ["serde"] }
 devforge-core  = { path = "./devforge-core" }
 devforge-rpc   = { path = "./devforge-rpc" }
 devforge-proxy = { path = "./devforge-proxy" }
+devforge-agent = { path = "./devforge-agent" }
 
 [workspace.dependencies.floem]
 # path = "../floem"

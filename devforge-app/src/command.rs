@@ -466,6 +466,10 @@ pub enum LapceWorkbenchCommand {
     #[strum(serialize = "toggle_search_focus")]
     ToggleSearchFocus,
 
+    #[strum(message = "Toggle AI Assistant Focus")]
+    #[strum(serialize = "toggle_ai_focus")]
+    ToggleAiFocus,
+
     // Visual toggle commands
     #[strum(serialize = "toggle_terminal_visual")]
     ToggleTerminalVisual,
@@ -487,6 +491,10 @@ pub enum LapceWorkbenchCommand {
 
     #[strum(serialize = "toggle_search_visual")]
     ToggleSearchVisual,
+
+    #[strum(message = "Toggle AI Assistant Visual")]
+    #[strum(serialize = "toggle_ai_visual")]
+    ToggleAiVisual,
 
     #[strum(serialize = "focus_editor")]
     FocusEditor,
@@ -548,7 +556,7 @@ pub enum LapceWorkbenchCommand {
     RestartToUpdate,
 
     #[strum(serialize = "show_about")]
-    #[strum(message = "About Lapce")]
+    #[strum(message = "About DevForge")]
     ShowAbout,
 
     #[strum(message = "Save All Files")]
@@ -556,12 +564,12 @@ pub enum LapceWorkbenchCommand {
     SaveAll,
 
     #[cfg(target_os = "macos")]
-    #[strum(message = "Install Lapce to PATH")]
+    #[strum(message = "Install DevForge to PATH")]
     #[strum(serialize = "install_to_path")]
     InstallToPATH,
 
     #[cfg(target_os = "macos")]
-    #[strum(message = "Uninstall Lapce from PATH")]
+    #[strum(message = "Uninstall DevForge from PATH")]
     #[strum(serialize = "uninstall_from_path")]
     UninstallFromPATH,
 
@@ -590,7 +598,7 @@ pub enum LapceWorkbenchCommand {
     DiffFiles,
 
     #[strum(serialize = "quit")]
-    #[strum(message = "Quit Editor")]
+    #[strum(message = "Quit DevForge")]
     Quit,
 
     #[strum(serialize = "go_to_location")]

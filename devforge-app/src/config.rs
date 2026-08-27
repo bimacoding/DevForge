@@ -18,6 +18,7 @@ use strum::VariantNames;
 use tracing::error;
 
 use self::{
+    ai::AiConfig,
     color::LapceColor,
     color_theme::{ColorThemeConfig, ThemeColor, ThemeColorPreference},
     core::CoreConfig,
@@ -30,6 +31,7 @@ use self::{
 };
 use crate::workspace::{LapceWorkspace, LapceWorkspaceType};
 
+pub mod ai;
 pub mod color;
 pub mod color_theme;
 pub mod core;
@@ -100,6 +102,8 @@ pub struct LapceConfig {
     pub ui: UIConfig,
     pub editor: EditorConfig,
     pub terminal: TerminalConfig,
+    #[serde(default)]
+    pub ai: AiConfig,
     #[serde(default)]
     pub color_theme: ColorThemeConfig,
     #[serde(default)]
@@ -211,6 +215,12 @@ impl LapceConfig {
                 .unwrap_or_else(|_| config.clone());
         }
 
+        // Capture trusted AI endpoint/credentials before workspace overrides.
+        // Workspace `.lapce/settings.toml` must not redirect the provider or steal keys.
+        let trusted_ai_provider = config.get_string("ai.provider").ok();
+        let trusted_ai_base_url = config.get_string("ai.base-url").ok();
+        let trusted_ai_api_key = config.get_string("ai.api-key").ok();
+
         match workspace.kind {
             LapceWorkspaceType::Local => {
                 if let Some(path) = workspace.path.as_ref() {
@@ -227,6 +237,29 @@ impl LapceConfig {
             LapceWorkspaceType::RemoteSSH(_) => {}
             #[cfg(windows)]
             LapceWorkspaceType::RemoteWSL(_) => {}
+        }
+
+        // Re-apply trusted AI settings so workspace cannot override them.
+        {
+            let mut builder = config::Config::builder().add_source(config.clone());
+            if let Some(v) = trusted_ai_provider {
+                builder = builder
+                    .set_override("ai.provider", v)
+                    .expect("ai.provider override");
+            }
+            if let Some(v) = trusted_ai_base_url {
+                builder = builder
+                    .set_override("ai.base-url", v)
+                    .expect("ai.base-url override");
+            }
+            if let Some(v) = trusted_ai_api_key {
+                builder = builder
+                    .set_override("ai.api-key", v)
+                    .expect("ai.api-key override");
+            }
+            if let Ok(restored) = builder.build() {
+                config = restored;
+            }
         }
 
         config
@@ -941,6 +974,24 @@ impl LapceConfig {
                     })
                     .unwrap_or(0),
                 items: self.terminal.profiles.clone().into_keys().collect(),
+            }),
+            ("ai", "default-mode") => Some(DropdownInfo {
+                active_index: ["ask", "edit", "agent"]
+                    .iter()
+                    .position(|m| *m == self.ai.default_mode)
+                    .unwrap_or(0),
+                items: im::vector!["ask".into(), "edit".into(), "agent".into()],
+            }),
+            ("ai", "provider") => Some(DropdownInfo {
+                active_index: ["openai-compatible", "ollama", "anthropic"]
+                    .iter()
+                    .position(|m| *m == self.ai.provider)
+                    .unwrap_or(0),
+                items: im::vector![
+                    "openai-compatible".into(),
+                    "ollama".into(),
+                    "anthropic".into()
+                ],
             }),
             _ => None,
         }

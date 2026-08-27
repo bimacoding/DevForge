@@ -23,6 +23,7 @@ itertools          = { workspace = true }
 devforge-core         = { workspace = true }
 devforge-proxy        = { workspace = true }
 devforge-rpc          = { workspace = true }
+devforge-agent        = { workspace = true }
 lapce-xi-rope      = { workspace = true }
 lsp-types          = { workspace = true }
 notify             = { workspace = true }

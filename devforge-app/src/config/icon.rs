@@ -14,6 +14,7 @@ impl LapceIcons {
     pub const CLOSE: &'static str = "close";
     pub const REMOTE: &'static str = "remote";
     pub const PROBLEM: &'static str = "error";
+    pub const AI: &'static str = "lightbulb";
     pub const DEBUG: &'static str = "debug";
     pub const DEBUG_ALT: &'static str = "debug_alt";
     pub const DEBUG_BREAKPOINT: &'static str = "debug_breakpoint";

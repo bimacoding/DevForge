@@ -1318,6 +1318,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "devforge-agent"
+version = "0.4.6"
+dependencies = [
+ "anyhow",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing 0.2.0",
+ "walkdir",
+]
+
+[[package]]
 name = "devforge-app"
 version = "0.4.6"
 dependencies = [
@@ -1332,6 +1347,7 @@ dependencies = [
  "config",
  "criterion",
  "crossbeam-channel",
+ "devforge-agent",
  "devforge-core",
  "devforge-proxy",
  "devforge-rpc",
