@@ -120,7 +120,7 @@ esac
 export DISTRO_ID="$(echo $ID | tr - _)"
 export DISTRO_VERSION="$(echo $VERSION_ID | tr - _)"
 
-cat > lapce.spec <<EOL
+cat > devforge.spec <<EOL
 Name:     ${PACKAGE_NAME}
 Version:  ${RELEASE_TAG_NAME}
 Release:  1.${DISTRO_ID}${DISTRO_VERSION}
@@ -140,29 +140,29 @@ export RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=/usr/bin/ld.lld"
 export PKG_CONFIG="$(xx-clang --print-prog-name=pkg-config)"
 rustup target add "$(xx-cargo --print-target-triple)"
 export RELEASE_TAG_NAME="${RELEASE_TAG_NAME}"
-xx-cargo build --profile release-lto --bin lapce --frozen
-xx-verify "${CARGO_TARGET_DIR}"/"$(xx-cargo --print-target-triple)"/release-lto/lapce
+xx-cargo build --profile release-lto --bin devforge --frozen
+xx-verify "${CARGO_TARGET_DIR}"/"$(xx-cargo --print-target-triple)"/release-lto/devforge
 
 %install
-install -Dm755 "${CARGO_TARGET_DIR}"/"$(xx-cargo --print-target-triple)"/release-lto/lapce %{buildroot}%{_bindir}/lapce
-install -Dm644 extra/linux/dev.lapce.lapce.desktop %{buildroot}/usr/share/applications/dev.lapce.lapce.desktop
-install -Dm644 extra/linux/dev.lapce.lapce.metainfo.xml %{buildroot}/usr/share/metainfo/dev.lapce.lapce.metainfo.xml
-install -Dm644 extra/images/logo.png %{buildroot}/usr/share/pixmaps/dev.lapce.lapce.png
+install -Dm755 "${CARGO_TARGET_DIR}"/"$(xx-cargo --print-target-triple)"/release-lto/devforge %{buildroot}%{_bindir}/devforge
+install -Dm644 extra/linux/dev.devforge.devforge.desktop %{buildroot}/usr/share/applications/dev.devforge.devforge.desktop
+install -Dm644 extra/linux/dev.devforge.devforge.metainfo.xml %{buildroot}/usr/share/metainfo/dev.devforge.devforge.metainfo.xml
+install -Dm644 extra/images/logo.png %{buildroot}/usr/share/pixmaps/dev.devforge.devforge.png
 
 %files
 %license LICENSE*
 %doc *.md
-%{_bindir}/lapce
-/usr/share/applications/dev.lapce.lapce.desktop
-/usr/share/metainfo/dev.lapce.lapce.metainfo.xml
-/usr/share/pixmaps/dev.lapce.lapce.png
+%{_bindir}/devforge
+/usr/share/applications/dev.devforge.devforge.desktop
+/usr/share/metainfo/dev.devforge.devforge.metainfo.xml
+/usr/share/pixmaps/dev.devforge.devforge.png
 
 %changelog
 * Thu Apr 25 2024 Jakub Panek
 - See GitHub for full changelog
 EOL
 
-/usr/bin/rpmbuild --build-in-place --noclean --noprep -bb --rmspec lapce.spec --verbose -D 'debug_package %{nil}'
+/usr/bin/rpmbuild --build-in-place --noclean --noprep -bb --rmspec devforge.spec --verbose -D 'debug_package %{nil}'
 ls -lahR $HOME/rpmbuild
 EOF
 
@@ -178,10 +178,10 @@ FROM build-base AS dev
 COPY . ./dev
 
 FROM scratch AS binary
-COPY --from=build /output/lapce .
+COPY --from=build /output/devforge .
 
 FROM scratch AS cross-binary
-COPY --from=build /output/lapce .
+COPY --from=build /output/devforge .
 
 FROM scratch AS package
 COPY --from=build /output/*.rpm .

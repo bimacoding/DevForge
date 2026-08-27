@@ -21,21 +21,21 @@ sudo xbps-install -S base-devel clang libxkbcommon-devel vulkan-loader wayland-d
 
 3. Clone this repository (this command will clone to your home directory):
 ```sh
-git clone https://github.com/lapce/lapce.git ~/lapce
+git clone https://github.com/bimacoding/DevForge.git ~/DevForge
 ```
 
 4. `cd` into the repository, and run the build command with the release flag
 ```sh
-cd ~/lapce
+cd ~/DevForge
 ```
 
 ```sh
-cargo install --path . --bin lapce --profile release-lto --locked
+cargo install --path . --bin devforge --profile release-lto --locked
 ```
 
 > If you use a different distribution, and are having trouble finding appropriate dependencies, let us know in an issue!
 
-Once Lapce is compiled, the executable will be available in `$HOME/.cargo/bin/lapce` and should be available in `PATH` automatically.
+Once Lapce is compiled, the executable will be available in `$HOME/.cargo/bin/devforge` and should be available in `PATH` automatically.
 
 ## Building using Docker or Podman
 

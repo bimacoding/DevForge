@@ -29,8 +29,8 @@ case "${lapce_new_ver}" in
   ;;
 esac
 
-if [ -e "${lapce_dir}/lapce" ]; then
-  lapce_installed_ver=$("${lapce_dir}/lapce" --version | cut -d' ' -f2)
+if [ -e "${lapce_dir}/devforge" ]; then
+  lapce_installed_ver=$("${lapce_dir}/devforge" --version | cut -d' ' -f2)
 
   printf '[DEBUG]: Current proxy version: %s\n' "${lapce_installed_ver}"
   printf '[DEBUG]: New proxy version: %s\n' "${lapce_new_version}"
@@ -39,7 +39,7 @@ if [ -e "${lapce_dir}/lapce" ]; then
     exit 0
   else
     printf 'Proxy outdated. Replacing proxy\n'
-    rm "${lapce_dir}/lapce"
+    rm "${lapce_dir}/devforge"
   fi
 fi
 
@@ -71,7 +71,7 @@ case $(uname -m) in
   ;;
 esac
 
-lapce_download_url="https://github.com/lapce/lapce/releases/download/${lapce_new_ver_tag}/lapce-proxy-${os_name}-${arch_name}.gz"
+lapce_download_url="https://github.com/bimacoding/DevForge/releases/download/${lapce_new_ver_tag}/devforge-proxy-${os_name}-${arch_name}.gz"
 
 printf 'Creating "%s"\n' "${lapce_dir}"
 mkdir -p "${lapce_dir}"
@@ -81,7 +81,7 @@ if test_cmd 'curl'; then
   # How old curl has these options? we'll find out
   printf 'Downloading using curl\n'
   curl --proto '=https' --tlsv1.2 -LfS -O "${lapce_download_url}"
-  # curl --proto '=https' --tlsv1.2 -LZfS -o "${tmp_dir}/lapce-proxy-${os_name}-${arch_name}.gz" "${lapce_download_url}"
+  # curl --proto '=https' --tlsv1.2 -LZfS -o "${tmp_dir}/devforge-proxy-${os_name}-${arch_name}.gz" "${lapce_download_url}"
 elif test_cmd 'wget'; then
   printf 'Downloading using wget\n'
   wget "${lapce_download_url}"
@@ -91,14 +91,14 @@ else
 fi
 
 printf 'Decompressing gzip\n'
-gzip -df "${lapce_dir}/lapce-proxy-${os_name}-${arch_name}.gz"
+gzip -df "${lapce_dir}/devforge-proxy-${os_name}-${arch_name}.gz"
 
 printf 'Renaming proxy \n'
-mv -v "${lapce_dir}/lapce-proxy-${os_name}-${arch_name}" "${lapce_dir}/lapce"
+mv -v "${lapce_dir}/devforge-proxy-${os_name}-${arch_name}" "${lapce_dir}/devforge"
 
 printf 'Making it executable\n'
-chmod +x "${lapce_dir}/lapce"
+chmod +x "${lapce_dir}/devforge"
 
-printf 'lapce-proxy installed\n'
+printf 'devforge-proxy installed\n'
 
 exit 0

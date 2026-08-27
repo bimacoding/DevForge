@@ -36,7 +36,7 @@
 ### Features/Changes
 
 - Update Fedora releases to use 41/42
-- Update Alpine to latest (used for building portable lapce-proxy)
+- Update Alpine to latest (used for building portable devforge-proxy)
 - Remove Ubuntu Focal (20.04)
 
 ### Bug Fixes

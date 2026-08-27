@@ -8,8 +8,8 @@
 <h4 align="center">Lightning-fast And Powerful Code Editor</h4>
 
 <div align="center">
-  <a href="https://github.com/lapce/lapce/actions/workflows/ci.yml" target="_blank">
-    <img src="https://github.com/lapce/lapce/actions/workflows/ci.yml/badge.svg" />
+  <a href="https://github.com/bimacoding/DevForge/actions/workflows/ci.yml" target="_blank">
+    <img src="https://github.com/bimacoding/DevForge/actions/workflows/ci.yml/badge.svg" />
   </a>
   <a href="https://discord.gg/n8tGJ6Rn6D" target="_blank">
     <img src="https://img.shields.io/discord/946858761413328946?logo=discord" />
@@ -21,9 +21,9 @@
 <br/>
 
 
-Lapce (IPA: /læps/) is written in pure Rust, with a UI in [Floem](https://github.com/lapce/floem). It is designed with [Rope Science](https://xi-editor.io/docs/rope_science_00.html) from the [Xi-Editor](https://github.com/xi-editor/xi-editor), enabling lightning-fast computation, and leverages [wgpu](https://github.com/gfx-rs/wgpu) for rendering. More information about the features of Lapce can be found on the [main website](https://lapce.dev) and user documentation can be found on [GitBook](https://docs.lapce.dev/).
+Lapce (IPA: /læps/) is written in pure Rust, with a UI in [Floem](https://github.com/bimacoding/floem). It is designed with [Rope Science](https://xi-editor.io/docs/rope_science_00.html) from the [Xi-Editor](https://github.com/xi-editor/xi-editor), enabling lightning-fast computation, and leverages [wgpu](https://github.com/gfx-rs/wgpu) for rendering. More information about the features of Lapce can be found on the [main website](https://lapce.dev) and user documentation can be found on [GitBook](https://docs.lapce.dev/).
 
-![](https://github.com/lapce/lapce/blob/master/extra/images/screenshot.png?raw=true)
+![](https://github.com/bimacoding/DevForge/blob/master/extra/images/screenshot.png?raw=true)
 
 ## Features
 
@@ -35,12 +35,12 @@ Lapce (IPA: /læps/) is written in pure Rust, with a UI in [Floem](https://githu
 
 ## Installation
 
-You can find pre-built releases for Windows, Linux and macOS [here](https://github.com/lapce/lapce/releases), or [installing with a package manager](docs/installing-with-package-manager.md).
+You can find pre-built releases for Windows, Linux and macOS [here](https://github.com/bimacoding/DevForge/releases), or [installing with a package manager](docs/installing-with-package-manager.md).
 If you'd like to compile from source, you can find the [guide](docs/building-from-source.md).
 
 ## Contributing
 
-<a href="https://ws.lap.dev/#https://github.com/lapce/lapce" target="_blank">
+<a href="https://ws.lap.dev/#https://github.com/bimacoding/DevForge" target="_blank">
       <img src="https://lap.dev/images/open-in-lapdev.svg?version=8" alt="Open in Lapdev">
 </a>
 

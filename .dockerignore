@@ -6,4 +6,4 @@ extra/linux/docker
 extra/macos
 extra/windows
 target
-lapce.spec
+devforge.spec

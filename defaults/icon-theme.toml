@@ -4,7 +4,7 @@
 name = "Lapce Codicons"
 
 [icon-theme.ui]
-"logo" = "lapce_logo.svg"
+"logo" = "devforge_logo.svg"
 "menu" = "menu.svg"
 "link" = "link.svg"
 "error" = "error.svg"

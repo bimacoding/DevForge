@@ -6,7 +6,7 @@ Lapce is available in below software repositories:
 
 Lapce is also additionally available via:
 
-- [Flatpak](https://flathub.org/apps/details/dev.lapce.lapce)
+- [Flatpak](https://flathub.org/apps/details/dev.devforge.devforge)
 - [Scoop](https://scoop.sh/#/apps?q=lapce)
 
 
