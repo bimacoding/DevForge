@@ -611,6 +611,15 @@ fn format_touched_count(n: usize) -> String {
     }
 }
 
+/// Platform-appropriate shortcut hint shown next to the footer Stop action.
+fn stop_shortcut() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "⌘⌫"
+    } else {
+        "Ctrl+⌫"
+    }
+}
+
 /// Icon button that fills its background on hover (Cursor-like toolbar button).
 fn icon_button<S: std::fmt::Display + 'static>(
     icon: impl Fn() -> &'static str + 'static,
@@ -655,23 +664,34 @@ fn touched_files_footer(
     let ai_stop = ai.clone();
     let ws_root = window_tab_data.workspace.path.clone();
 
-    let stop_btn = label(|| "Stop".to_string())
-        .on_click_stop(move |_| {
-            ai_stop.stop();
-        })
-        .style(move |s| {
+    let stop_btn = stack((
+        label(|| "Stop".to_string()).style(move |s| {
             let config = config.get();
-            s.padding_horiz(8.0)
-                .padding_vert(2.0)
-                .border_radius(6.0)
-                .font_size((config.ui.font_size() as f32) * 0.82)
+            s.font_size((config.ui.font_size() as f32) * 0.82)
                 .color(config.color(LapceColor::EDITOR_FOREGROUND))
-                .cursor(CursorStyle::Pointer)
-                .hover(|s| {
-                    s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
-                })
-                .apply_if(!ai.busy.get(), |s| s.hide())
-        });
+        }),
+        label(|| stop_shortcut().to_string()).style(move |s| {
+            let config = config.get();
+            s.font_size((config.ui.font_size() as f32) * 0.78)
+                .color(config.color(LapceColor::EDITOR_DIM))
+                .margin_left(4.0)
+        }),
+    ))
+    .on_click_stop(move |_| {
+        ai_stop.stop();
+    })
+    .style(move |s| {
+        let config = config.get();
+        s.items_center()
+            .padding_horiz(8.0)
+            .padding_vert(2.0)
+            .border_radius(6.0)
+            .cursor(CursorStyle::Pointer)
+            .hover(|s| {
+                s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+            })
+            .apply_if(!ai.busy.get(), |s| s.hide())
+    });
 
     let review_btn = {
         let ai_review = ai.clone();
@@ -1022,9 +1042,7 @@ fn composer_box(
                 .is_focused(is_focused)
                 .key_focus(ai_focus)
                 .build_editor(editor)
-                .placeholder(|| {
-                    "Add a follow-up…  Enter send · Shift+Enter newline".to_string()
-                })
+                .placeholder(|| "Add a follow-up".to_string())
                 .on_cursor_pos(move |point| {
                     cursor_x.set(point.x);
                 })
@@ -1078,7 +1096,7 @@ fn composer_toolbar(
 
     let mode_btn = {
         let ai_m = ai.clone();
-        dropdown_button(
+        mode_pill(
             move || ai.mode.get().label().to_string(),
             move || ai_m.show_mode_menu(),
             config,
@@ -1087,7 +1105,7 @@ fn composer_toolbar(
 
     let model_btn = {
         let ai_m = ai.clone();
-        dropdown_button(
+        plain_dropdown(
             move || {
                 let m = ai.model.get();
                 if m.is_empty() || m.eq_ignore_ascii_case("auto") {
@@ -1188,8 +1206,54 @@ fn composer_toolbar(
     })
 }
 
-/// Text + chevron pill used for the composer's mode and model pickers.
-fn dropdown_button(
+/// Filled pill used for the composer's mode picker (Cursor's "Agent" chip).
+fn mode_pill(
+    text_fn: impl Fn() -> String + 'static,
+    on_click: impl Fn() + 'static,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    stack((
+        svg(move || config.get().ui_svg(LapceIcons::AI_SPARKLE)).style(move |s| {
+            let config = config.get();
+            let size = (config.ui.icon_size() as f32) * 0.75;
+            s.size(size, size)
+                .color(config.color(LapceColor::EDITOR_FOREGROUND))
+                .margin_left(8.0)
+        }),
+        label(text_fn).style(move |s| {
+            let config = config.get();
+            s.font_size((config.ui.font_size() as f32) * 0.86)
+                .color(config.color(LapceColor::EDITOR_FOREGROUND))
+                .max_width(120.0)
+                .text_ellipsis()
+        }),
+        svg(move || config.get().ui_svg(LapceIcons::DROPDOWN_ARROW)).style(
+            move |s| {
+                let config = config.get();
+                let size = (config.ui.icon_size() as f32) * 0.72;
+                s.size(size, size)
+                    .color(config.color(LapceColor::EDITOR_DIM))
+                    .margin_right(6.0)
+            },
+        ),
+    ))
+    .on_click_stop(move |_| on_click())
+    .style(move |s| {
+        let config = config.get();
+        s.items_center()
+            .gap(4.0)
+            .padding_vert(3.0)
+            .border_radius(8.0)
+            .cursor(CursorStyle::Pointer)
+            .background(config.color(LapceColor::PANEL_CURRENT_BACKGROUND))
+            .hover(|s| {
+                s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+            })
+    })
+}
+
+/// Plain text + chevron picker used for the composer's model menu.
+fn plain_dropdown(
     text_fn: impl Fn() -> String + 'static,
     on_click: impl Fn() + 'static,
     config: ReadSignal<Arc<LapceConfig>>,
@@ -1197,17 +1261,17 @@ fn dropdown_button(
     stack((
         label(text_fn).style(move |s| {
             let config = config.get();
-            s.font_size((config.ui.font_size() as f32) * 0.88)
-                .color(config.color(LapceColor::EDITOR_FOREGROUND))
+            s.font_size((config.ui.font_size() as f32) * 0.86)
+                .color(config.color(LapceColor::EDITOR_DIM))
                 .padding_left(8.0)
                 .padding_vert(4.0)
-                .max_width(150.0)
+                .max_width(220.0)
                 .text_ellipsis()
         }),
         svg(move || config.get().ui_svg(LapceIcons::DROPDOWN_ARROW)).style(
             move |s| {
                 let config = config.get();
-                let size = (config.ui.icon_size() as f32) * 0.8;
+                let size = (config.ui.icon_size() as f32) * 0.72;
                 s.size(size, size)
                     .color(config.color(LapceColor::EDITOR_DIM))
                     .margin_right(6.0)

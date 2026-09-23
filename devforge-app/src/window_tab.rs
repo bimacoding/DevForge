@@ -221,6 +221,9 @@ impl KeyPressFocus for WindowTabData {
                 self.common.focus.get_untracked()
                     == Focus::Panel(PanelKind::SourceControl)
             }
+            Condition::AiFocus => {
+                self.common.focus.get_untracked() == Focus::Panel(PanelKind::Ai)
+            }
             _ => false,
         }
     }
@@ -1295,6 +1298,9 @@ impl WindowTabData {
             }
             ToggleAiFocus => {
                 self.toggle_panel_focus(PanelKind::Ai);
+            }
+            AiChatStop => {
+                self.ai.stop();
             }
             ToggleTerminalVisual => {
                 self.toggle_panel_visual(PanelKind::Terminal);

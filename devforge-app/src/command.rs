@@ -486,6 +486,10 @@ pub enum LapceWorkbenchCommand {
     #[strum(serialize = "toggle_ai_focus")]
     ToggleAiFocus,
 
+    #[strum(message = "AI Chat: Stop")]
+    #[strum(serialize = "ai_chat_stop")]
+    AiChatStop,
+
     // Visual toggle commands
     #[strum(serialize = "toggle_terminal_visual")]
     ToggleTerminalVisual,

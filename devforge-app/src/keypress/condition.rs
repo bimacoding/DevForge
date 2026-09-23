@@ -61,6 +61,8 @@ pub enum Condition {
     SourceControlFocus,
     #[strum(serialize = "panel_focus")]
     PanelFocus,
+    #[strum(serialize = "ai_focus")]
+    AiFocus,
     #[strum(serialize = "rename_focus")]
     RenameFocus,
     #[strum(serialize = "search_active")]
@@ -132,7 +134,11 @@ mod test {
     #[test]
     fn test_check_condition() {
         let focus = MockFocus {
-            accepted_conditions: &[Condition::EditorFocus, Condition::ListFocus],
+            accepted_conditions: &[
+                Condition::EditorFocus,
+                Condition::ListFocus,
+                Condition::AiFocus,
+            ],
         };
 
         let test_cases = [
@@ -140,6 +146,8 @@ mod test {
             ("list_focus", true),
             ("!editor_focus", false),
             ("!list_focus", false),
+            ("ai_focus", true),
+            ("!ai_focus", false),
             ("editor_focus || list_focus", true),
             ("editor_focus || !list_focus", true),
             ("!editor_focus || list_focus", true),

@@ -44,6 +44,13 @@ key = "meta+enter"
 command = "source_control_commit"
 when = "source_control_focus"
 
+# --------------------------------- AI Assistant ---------------------------------------
+
+[[keymaps]]
+key = "meta+backspace"
+command = "ai_chat_stop"
+when = "ai_focus"
+
 # --------------------------------- Basic editing ---------------------------------------
 
 [[keymaps]]

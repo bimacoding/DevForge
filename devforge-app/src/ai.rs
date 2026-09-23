@@ -264,7 +264,7 @@ impl KeyPressFocus for AiData {
     }
 
     fn check_condition(&self, condition: Condition) -> bool {
-        matches!(condition, Condition::PanelFocus)
+        matches!(condition, Condition::PanelFocus | Condition::AiFocus)
     }
 
     fn run_command(
