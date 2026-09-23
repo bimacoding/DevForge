@@ -90,12 +90,105 @@ impl AiChatRole {
     }
 }
 
+/// How an agent step (tool / MCP call) finished, used for the step icon + tint.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AiStepState {
+    Running,
+    Done,
+    Failed,
+    Skipped,
+}
+
+/// One observable agent step: a tool/MCP call plus what it returned.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AiAgentStep {
+    pub name: String,
+    #[serde(default)]
+    pub arguments: String,
+    #[serde(default)]
+    pub output: String,
+    pub state: AiStepState,
+    #[serde(default)]
+    pub is_mcp: bool,
+    /// Files touched by this step (for write tools), rendered as chips.
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
+impl AiAgentStep {
+    pub fn new(name: String, arguments: String, is_mcp: bool) -> Self {
+        Self {
+            files: touched_files(&name, &arguments),
+            name,
+            arguments,
+            output: String::new(),
+            state: AiStepState::Running,
+            is_mcp,
+        }
+    }
+}
+
+/// Compact one-line summary of a step, e.g. ``str_replace · src/main.rs``.
+pub fn step_summary(step: &AiAgentStep) -> String {
+    let verb = tool_verb(&step.name);
+    match step.files.first() {
+        Some(file) => format!("{verb} · {file}"),
+        None => verb.to_string(),
+    }
+}
+
+pub fn tool_verb(name: &str) -> &'static str {
+    if let Some(rest) = name.strip_prefix("mcp__") {
+        return match rest.split("__").nth(1) {
+            Some(sub) => match sub {
+                "list_tables" => "List tables",
+                "describe_table" => "Inspect table",
+                "execute_query" => "Run query",
+                _ => "MCP call",
+            },
+            None => "MCP call",
+        };
+    }
+    match name {
+        "read_file" => "Read file",
+        "list_directory" => "List directory",
+        "get_project_structure" => "Map project",
+        "search_code" => "Search code",
+        "write_file" => "Write file",
+        "str_replace" => "Edit file",
+        "create_directory" => "Create directory",
+        _ => "Tool call",
+    }
+}
+
+/// Best-effort extraction of `path`-like arguments for file chips.
+fn touched_files(name: &str, arguments: &str) -> Vec<String> {
+    if !matches!(
+        name,
+        "read_file" | "write_file" | "str_replace" | "create_directory"
+    ) {
+        return Vec::new();
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(arguments) else {
+        return Vec::new();
+    };
+    value
+        .get("path")
+        .and_then(|p| p.as_str())
+        .map(|p| vec![p.to_string()])
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AiChatMessage {
     pub role: AiChatRole,
     pub content: String,
     #[serde(default)]
     pub attachments: Vec<String>,
+    /// Populated for `AiChatRole::Activity` messages produced by tool calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<AiAgentStep>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -217,6 +310,20 @@ enum AiUiEvent {
     SetBusy {
         conv_id: String,
         busy: bool,
+    },
+    /// A tool / MCP call just started; push a collapsible step bubble.
+    StepStart {
+        conv_id: String,
+        name: String,
+        arguments: String,
+        is_mcp: bool,
+    },
+    /// A tool / MCP call finished; fill in output + state of the open step.
+    StepEnd {
+        conv_id: String,
+        name: String,
+        output: String,
+        is_error: bool,
     },
     NeedApproval {
         conv_id: String,
@@ -481,6 +588,85 @@ impl AiData {
         show_context_menu(menu, None);
     }
 
+    pub fn show_history_menu(&self) {
+        let ai = self.clone();
+        let active = ai.active_id.get_untracked();
+        let list: Vec<(String, String)> = ai.conversations.with_untracked(|c| {
+            c.iter().map(|c| (c.id.clone(), c.title.clone())).collect()
+        });
+        let mut menu = Menu::new("");
+        for (id, title) in list {
+            let ai = ai.clone();
+            let mark = if id == active {
+                format!("✓ {title}")
+            } else {
+                title.clone()
+            };
+            let id_sel = id.clone();
+            menu = menu.entry(MenuItem::new(mark).action(move || {
+                ai.select_conversation(&id_sel);
+            }));
+        }
+        menu = menu.separator();
+        let ai_del = self.clone();
+        let active_del = active.clone();
+        menu = menu.entry(MenuItem::new("Delete current chat").action(move || {
+            ai_del.delete_conversation(&active_del);
+        }));
+        show_context_menu(menu, None);
+    }
+
+    /// Files touched by Agent steps in the active conversation, in order.
+    pub fn touched_files(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        self.messages.with_untracked(|msgs| {
+            for msg in msgs.iter() {
+                let Some(step) = msg.step.as_ref() else {
+                    continue;
+                };
+                for file in &step.files {
+                    if !out.contains(file) {
+                        out.push(file.clone());
+                    }
+                }
+            }
+        });
+        out
+    }
+
+    pub fn clear_active_chat(&self) {
+        self.messages.set(Vector::new());
+        self.persist_all();
+    }
+
+    /// Re-send the last user prompt in this conversation.
+    pub fn retry_last(&self, workspace: Arc<LapceWorkspace>) {
+        if self.busy.get_untracked() {
+            self.status.set("Busy — stop the run first".into());
+            return;
+        }
+        let last = self.messages.with_untracked(|msgs| {
+            msgs.iter()
+                .rev()
+                .find(|m| matches!(m.role, AiChatRole::User))
+                .map(|m| m.content.clone())
+        });
+        let Some(mut prompt) = last else {
+            self.status.set("Nothing to retry yet".into());
+            return;
+        };
+        // Drop the citation block appended by dispatch_prompt.
+        if let Some(idx) = prompt.find("\n\n@") {
+            prompt.truncate(idx);
+        }
+        let prompt = prompt.trim().to_string();
+        if prompt.is_empty() {
+            self.status.set("Nothing to retry yet".into());
+            return;
+        }
+        self.dispatch_prompt(workspace, prompt, Vec::new());
+    }
+
     fn apply_provider(&self, provider: &str) {
         use crate::config::LapceConfig;
         if let Ok(value) = serde::Serialize::serialize(
@@ -518,7 +704,7 @@ impl AiData {
         let mut list: Vec<String> = config
             .ai
             .extra_models
-            .split(|c| c == ',' || c == '\n' || c == ';')
+            .split([',', '\n', ';'])
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
@@ -787,6 +973,7 @@ impl AiData {
             role: AiChatRole::User,
             content: display,
             attachments: attach_names,
+            step: None,
         });
         self.messages.set(msgs);
         self.persist_active();
@@ -849,6 +1036,7 @@ impl AiData {
                                         role: AiChatRole::Assistant,
                                         content: String::new(),
                                         attachments: Vec::new(),
+                                        step: None,
                                     });
                                 },
                             );
@@ -871,9 +1059,70 @@ impl AiData {
                                         role: AiChatRole::Assistant,
                                         content: delta.clone(),
                                         attachments: Vec::new(),
+                                        step: None,
                                     });
                                 },
                             );
+                        }
+                        AiUiEvent::StepStart {
+                            conv_id,
+                            name,
+                            arguments,
+                            is_mcp,
+                        } => {
+                            mutate_conv_messages(
+                                conversations,
+                                messages,
+                                active_id,
+                                conv_id,
+                                |msgs| {
+                                    msgs.push(AiChatMessage {
+                                        role: AiChatRole::Activity,
+                                        content: String::new(),
+                                        attachments: Vec::new(),
+                                        step: Some(AiAgentStep::new(
+                                            name.clone(),
+                                            arguments.clone(),
+                                            *is_mcp,
+                                        )),
+                                    });
+                                },
+                            );
+                        }
+                        AiUiEvent::StepEnd {
+                            conv_id,
+                            name,
+                            output,
+                            is_error,
+                        } => {
+                            mutate_conv_messages(
+                                conversations,
+                                messages,
+                                active_id,
+                                conv_id,
+                                |msgs| {
+                                    let target = msgs.iter_mut().rev().find(|m| {
+                                        m.step.as_ref().is_some_and(|s| {
+                                            s.name == *name
+                                                && s.state == AiStepState::Running
+                                        })
+                                    });
+                                    if let Some(msg) = target {
+                                        if let Some(step) = msg.step.as_mut() {
+                                            step.output = output.clone();
+                                            step.state = if *is_error {
+                                                AiStepState::Failed
+                                            } else {
+                                                AiStepState::Done
+                                            };
+                                        }
+                                    }
+                                },
+                            );
+                            let list: Vec<_> =
+                                conversations.get_untracked().into_iter().collect();
+                            let aid = active_id.get_untracked();
+                            save_conversations(&list, &aid);
                         }
                         AiUiEvent::NeedApproval {
                             conv_id,
@@ -1149,6 +1398,7 @@ fn run_ai_ask(
                     content: "Open a local folder workspace to use AI Ask tools."
                         .into(),
                     attachments: Vec::new(),
+                    step: None,
                 },
             });
             send(AiUiEvent::Status {
@@ -1194,6 +1444,7 @@ fn run_ai_ask(
                     role: AiChatRole::System,
                     content: format!("Provider error: {e}"),
                     attachments: Vec::new(),
+                    step: None,
                 },
             });
             send(AiUiEvent::Status {
@@ -1285,6 +1536,7 @@ fn run_ai_ask(
                 role: AiChatRole::Activity,
                 content: a,
                 attachments: Vec::new(),
+                step: None,
             },
         }),
         AgentEvent::TextDelta(t) => {
@@ -1299,28 +1551,23 @@ fn run_ai_ask(
         }
         AgentEvent::ToolStart { name, arguments } => {
             streaming = false;
-            send(AiUiEvent::Append {
+            send(AiUiEvent::StepStart {
                 conv_id: cid(),
-                msg: AiChatMessage {
-                    role: AiChatRole::Activity,
-                    content: format!("🔧 `{name}`"),
-                    attachments: Vec::new(),
-                },
+                is_mcp: name.starts_with("mcp__"),
+                name,
+                arguments,
             });
-            let _ = arguments;
         }
-        AgentEvent::ToolEnd { name, is_error } => {
-            send(AiUiEvent::Append {
+        AgentEvent::ToolEnd {
+            name,
+            output,
+            is_error,
+        } => {
+            send(AiUiEvent::StepEnd {
                 conv_id: cid(),
-                msg: AiChatMessage {
-                    role: AiChatRole::Activity,
-                    content: if is_error {
-                        format!("Tool `{name}` failed")
-                    } else {
-                        format!("Tool `{name}` done")
-                    },
-                    attachments: Vec::new(),
-                },
+                name,
+                output,
+                is_error,
             });
         }
         AgentEvent::Error(e) => {
@@ -1330,6 +1577,7 @@ fn run_ai_ask(
                     role: AiChatRole::System,
                     content: format!("Error: {e}"),
                     attachments: Vec::new(),
+                    step: None,
                 },
             });
             send(AiUiEvent::Status {
@@ -1350,12 +1598,10 @@ fn run_ai_ask(
             arguments: args.to_string(),
             reply: reply_tx,
         });
-        match reply_rx.recv_timeout(Duration::from_secs(600)) {
-            Ok(v) => v,
-            Err(_) => false,
-        }
+        reply_rx
+            .recv_timeout(Duration::from_secs(600))
+            .unwrap_or_default()
     };
-
     let _ = runtime.run_ask(&backend, request, &mut emit, &mut approve);
     send(AiUiEvent::SetBusy {
         conv_id: cid(),

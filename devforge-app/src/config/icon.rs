@@ -15,6 +15,24 @@ impl LapceIcons {
     pub const REMOTE: &'static str = "remote";
     pub const PROBLEM: &'static str = "error";
     pub const AI: &'static str = "lightbulb";
+    /// Cursor-style AI panel icons.
+    pub const AI_SPARKLE: &'static str = "ai.sparkle";
+    pub const AI_SEND: &'static str = "ai.send";
+    pub const AI_STOP: &'static str = "ai.stop";
+    pub const AI_MIC: &'static str = "ai.mic";
+    pub const AI_ATTACH: &'static str = "ai.attach";
+    pub const AI_COPY: &'static str = "ai.copy";
+    pub const AI_CHECK: &'static str = "ai.check";
+    pub const AI_ACCOUNT: &'static str = "ai.account";
+    pub const AI_TOOL: &'static str = "ai.tool";
+    pub const AI_MCP: &'static str = "ai.mcp";
+    pub const AI_DISABLED: &'static str = "ai.disabled";
+    pub const AI_HISTORY: &'static str = "ai.history";
+    pub const AI_EDIT: &'static str = "ai.edit";
+    pub const AI_TERMINAL: &'static str = "ai.terminal";
+    pub const AI_FILE: &'static str = "ai.file";
+    pub const AI_FOLD_OPEN: &'static str = "ai.fold.open";
+    pub const AI_FOLD_CLOSED: &'static str = "ai.fold.closed";
     pub const DEBUG: &'static str = "debug";
     pub const DEBUG_ALT: &'static str = "debug_alt";
     pub const DEBUG_BREAKPOINT: &'static str = "debug_breakpoint";

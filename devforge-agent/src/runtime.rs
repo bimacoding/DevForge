@@ -218,6 +218,7 @@ pub fn run_agent(
             let result = dispatch_tool(&tool_ctx, call, request.mcp.as_deref());
             on_event(AgentEvent::ToolEnd {
                 name: call.name.clone(),
+                output: truncate_tool_output(&result.content),
                 is_error: result.is_error,
             });
             messages.push(ChatMessage::tool(&call.id, result.content));
@@ -240,6 +241,19 @@ fn merge_tools(base: Value, mcp: Option<&McpHub>) -> Value {
         }
     }
     json!(arr)
+}
+
+/// Maximum characters of a tool result forwarded to the UI, so a huge file
+/// read cannot stall the event channel or blow up the bubble layout.
+const MAX_TOOL_OUTPUT_CHARS: usize = 4_000;
+
+fn truncate_tool_output(output: &str) -> String {
+    if output.chars().count() <= MAX_TOOL_OUTPUT_CHARS {
+        return output.to_string();
+    }
+    let head: String = output.chars().take(MAX_TOOL_OUTPUT_CHARS).collect();
+    let omitted = output.chars().count() - MAX_TOOL_OUTPUT_CHARS;
+    format!("{head}\n… ({omitted} more characters omitted)")
 }
 
 fn dispatch_tool(

@@ -114,8 +114,16 @@ pub enum AgentEvent {
     State(&'static str),
     Activity(String),
     TextDelta(String),
-    ToolStart { name: String, arguments: String },
-    ToolEnd { name: String, is_error: bool },
+    ToolStart {
+        name: String,
+        arguments: String,
+    },
+    ToolEnd {
+        name: String,
+        /// Tool result content (truncated by the caller for display).
+        output: String,
+        is_error: bool,
+    },
     Error(String),
     Done,
 }

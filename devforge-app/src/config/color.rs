@@ -103,6 +103,9 @@ impl LapceColor {
     pub const SOURCE_CONTROL_REMOVED: &'static str = "source_control.removed";
     pub const SOURCE_CONTROL_MODIFIED: &'static str = "source_control.modified";
 
+    /// AI chat composer / panel (Cursor-like).
+    pub const AI_COMPOSER_BACKGROUND: &'static str = "ai.composer.background";
+
     pub const TERMINAL_CURSOR: &'static str = "terminal.cursor";
     pub const TERMINAL_BACKGROUND: &'static str = "terminal.background";
     pub const TERMINAL_FOREGROUND: &'static str = "terminal.foreground";

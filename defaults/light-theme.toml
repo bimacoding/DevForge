@@ -172,6 +172,9 @@ dim-text = "#A0A1A7"
 "source_control.removed" = "#FF5266CC"
 "source_control.modified" = "#0184BCCC"
 
+# AI chat panel
+"ai.composer.background" = "$secondary-background"
+
 "tooltip.background" = "$primary-background"
 "tooltip.foreground" = "$text"
 

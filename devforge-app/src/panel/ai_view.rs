@@ -1,13 +1,22 @@
-use std::rc::Rc;
+//! Cursor-style AI chat panel: bubble transcript, observable agent/MCP steps,
+//! chat history tabs, mode/model pickers, and a compact composer.
+
+use std::{rc::Rc, sync::Arc};
 
 use floem::{
-    IntoView, View,
+    AnyView, IntoView, View,
     event::EventListener,
-    peniko::kurbo::{Point, Size},
-    reactive::{SignalGet, SignalUpdate, SignalWith, create_rw_signal},
-    style::CursorStyle,
+    peniko::{
+        Color,
+        kurbo::{Point, Size},
+    },
+    reactive::{
+        ReadSignal, RwSignal, SignalGet, SignalUpdate, SignalWith, create_rw_signal,
+    },
+    style::{CursorStyle, FlexWrap},
     views::{
-        Decorators, container, dyn_stack, empty, label, rich_text, scroll::scroll,
+        Decorators, container, dyn_stack, editor::core::register::Clipboard,
+        editor::text::SystemClipboard, empty, label, rich_text, scroll::scroll,
         stack, svg, text,
     },
 };
@@ -16,9 +25,12 @@ use super::{
     data::PanelSection, kind::PanelKind, position::PanelPosition, view::PanelBuilder,
 };
 use crate::{
-    ai::{AiAttachmentKind, AiChatRole, AiData},
+    ai::{
+        AiAttachmentKind, AiChatMessage, AiChatRole, AiData, AiStepState,
+        step_summary,
+    },
     app::clickable_icon,
-    config::{color::LapceColor, icon::LapceIcons},
+    config::{LapceConfig, color::LapceColor, icon::LapceIcons},
     markdown::{MarkdownContent, parse_markdown},
     text_input::TextInputBuilder,
     window_tab::{Focus, WindowTabData},
@@ -43,12 +55,10 @@ fn ai_panel_content(window_tab_data: Rc<WindowTabData>) -> impl View {
     let is_focused = move || focus.get() == Focus::Panel(PanelKind::Ai);
     let cursor_x = create_rw_signal(0.0);
 
-    let tabs = conversation_tabs(ai.clone());
     let messages_view = messages_list(ai.clone());
     let bottom = stack((
         tool_approval_bar(ai.clone()),
         queue_bar(ai.clone(), workspace.clone()),
-        status_bar(ai.clone()),
         composer_box(ai.clone(), workspace, is_focused, cursor_x, focus),
     ))
     .style(|s| {
@@ -59,7 +69,13 @@ fn ai_panel_content(window_tab_data: Rc<WindowTabData>) -> impl View {
             .items_stretch()
     });
 
-    stack((tabs, messages_view, bottom)).style(|s| {
+    stack((
+        conversation_tabs(ai.clone()),
+        messages_view,
+        touched_files_footer(ai.clone(), window_tab_data.clone()),
+        bottom,
+    ))
+    .style(|s| {
         s.flex_col()
             .size_pct(100.0, 100.0)
             .min_height(0.0)
@@ -67,9 +83,11 @@ fn ai_panel_content(window_tab_data: Rc<WindowTabData>) -> impl View {
     })
 }
 
+/// Tab strip with chat history + "new chat" + history menu (Cursor-style).
 fn conversation_tabs(ai: AiData) -> impl View {
     let config = ai.common.config;
     let ai_new = ai.clone();
+    let ai_hist = ai.clone();
     let tabs = scroll({
         dyn_stack(
             move || {
@@ -112,7 +130,7 @@ fn conversation_tabs(ai: AiData) -> impl View {
                                             LapceColor::PANEL_CURRENT_BACKGROUND,
                                         )
                                     } else {
-                                        floem::peniko::Color::TRANSPARENT
+                                        Color::TRANSPARENT
                                     })
                                     .border_radius(6.0)
                                     .cursor(CursorStyle::Pointer)
@@ -153,7 +171,18 @@ fn conversation_tabs(ai: AiData) -> impl View {
         config,
     );
 
-    stack((tabs, new_btn)).style(move |s| {
+    let history_btn = clickable_icon(
+        || LapceIcons::AI_HISTORY,
+        move || {
+            ai_hist.show_history_menu();
+        },
+        || false,
+        || false,
+        || "Chat history",
+        config,
+    );
+
+    stack((tabs, new_btn, history_btn)).style(move |s| {
         let config = config.get();
         s.width_pct(100.0)
             .flex_grow(0.0)
@@ -169,6 +198,7 @@ fn conversation_tabs(ai: AiData) -> impl View {
 
 fn messages_list(ai: AiData) -> impl View {
     let config = ai.common.config;
+    let workspace = ai.common.workspace.clone();
     scroll({
         dyn_stack(
             move || {
@@ -176,157 +206,11 @@ fn messages_list(ai: AiData) -> impl View {
                     .get()
                     .into_iter()
                     .enumerate()
-                    .map(|(i, m)| (i, m))
                     .collect::<Vec<_>>()
             },
             |(i, m)| (*i, m.role.key(), m.content.len()),
             move |(_i, msg)| {
-                let is_user = matches!(msg.role, AiChatRole::User);
-                let is_activity = matches!(msg.role, AiChatRole::Activity);
-                let is_system = matches!(msg.role, AiChatRole::System);
-                let is_assistant = matches!(msg.role, AiChatRole::Assistant);
-                let label_text = match msg.role {
-                    AiChatRole::User => "You",
-                    AiChatRole::Assistant => "DevForge",
-                    AiChatRole::System => "System",
-                    AiChatRole::Activity => "Tool",
-                };
-                let content = msg.content.clone();
-                let attaches = msg.attachments.clone();
-
-                let body = if is_assistant {
-                    let md = parse_markdown(&content, 1.55, &config.get());
-                    dyn_stack(
-                        move || md.clone(),
-                        |c| match c {
-                            MarkdownContent::Text(t) => {
-                                format!("t:{}", t.lines().len())
-                            }
-                            MarkdownContent::Image { url, .. } => {
-                                format!("i:{url}")
-                            }
-                            MarkdownContent::Separator => "sep".into(),
-                        },
-                        move |content| match content {
-                            MarkdownContent::Text(text_layout) => container(
-                                rich_text(move || text_layout.clone())
-                                    .style(|s| s.width_pct(100.0)),
-                            )
-                            .style(|s| s.width_pct(100.0))
-                            .into_any(),
-                            MarkdownContent::Image { .. } => empty().into_any(),
-                            MarkdownContent::Separator => {
-                                container(empty().style(move |s| {
-                                    s.width_pct(100.0)
-                                        .margin_vert(6.0)
-                                        .height(1.0)
-                                        .background(
-                                            config
-                                                .get()
-                                                .color(LapceColor::LAPCE_BORDER),
-                                        )
-                                }))
-                                .into_any()
-                            }
-                        },
-                    )
-                    .style(|s| s.flex_col().width_pct(100.0))
-                    .into_any()
-                } else {
-                    text(content)
-                        .style(move |s| {
-                            let config = config.get();
-                            s.color(config.color(LapceColor::EDITOR_FOREGROUND))
-                                .font_size(config.ui.font_size() as f32)
-                                .line_height(1.55)
-                        })
-                        .into_any()
-                };
-
-                container(
-                    stack((
-                        label(move || label_text.to_string()).style(move |s| {
-                            let config = config.get();
-                            s.font_bold()
-                                .font_size((config.ui.font_size() as f32) * 0.8)
-                                .color(config.color(LapceColor::EDITOR_DIM))
-                                .margin_bottom(4.0)
-                        }),
-                        body,
-                        if attaches.is_empty() {
-                            empty().into_any()
-                        } else {
-                            dyn_stack(
-                                move || attaches.clone(),
-                                |name| name.clone(),
-                                move |name| {
-                                    label(move || format!("@{name}")).style(
-                                        move |s| {
-                                            let config = config.get();
-                                            s.margin_top(6.0)
-                                                .margin_right(6.0)
-                                                .padding_horiz(8.0)
-                                                .padding_vert(2.0)
-                                                .border_radius(8.0)
-                                                .border(1.0)
-                                                .border_color(
-                                                    config.color(
-                                                        LapceColor::LAPCE_BORDER,
-                                                    ),
-                                                )
-                                                .color(
-                                                    config.color(
-                                                        LapceColor::EDITOR_DIM,
-                                                    ),
-                                                )
-                                                .font_size(
-                                                    (config.ui.font_size() as f32)
-                                                        * 0.85,
-                                                )
-                                        },
-                                    )
-                                },
-                            )
-                            .style(|s| {
-                                s.flex_row()
-                                    .flex_wrap(floem::style::FlexWrap::Wrap)
-                                    .margin_top(4.0)
-                            })
-                            .into_any()
-                        },
-                    ))
-                    .style(|s| s.flex_col().max_width_pct(92.0)),
-                )
-                .style(move |s| {
-                    let config = config.get();
-                    s.padding_horiz(12.0)
-                        .padding_vert(10.0)
-                        .margin_vert(4.0)
-                        .margin_horiz(8.0)
-                        .border_radius(12.0)
-                        .items_start()
-                        .apply_if(is_user, |s| {
-                            s.margin_left_pct(8.0).background(
-                                config.color(LapceColor::PANEL_CURRENT_BACKGROUND),
-                            )
-                        })
-                        .apply_if(is_assistant, |s| {
-                            s.margin_right_pct(8.0)
-                                .border(1.0)
-                                .border_color(config.color(LapceColor::LAPCE_BORDER))
-                                .background(
-                                    config.color(LapceColor::PANEL_BACKGROUND),
-                                )
-                        })
-                        .apply_if(is_activity, |s| {
-                            s.padding_vert(4.0)
-                                .background(floem::peniko::Color::TRANSPARENT)
-                        })
-                        .apply_if(is_system, |s| {
-                            s.border(1.0)
-                                .border_color(config.color(LapceColor::LAPCE_WARN))
-                        })
-                })
+                message_bubble(msg, ai.clone(), workspace.clone(), config)
             },
         )
         .style(|s| {
@@ -343,6 +227,515 @@ fn messages_list(ai: AiData) -> impl View {
             .flex_basis(0.0)
             .flex_shrink(1.0)
             .min_height(0.0)
+    })
+}
+
+fn message_bubble(
+    msg: AiChatMessage,
+    ai: AiData,
+    workspace: Arc<crate::workspace::LapceWorkspace>,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> AnyView {
+    match msg.role {
+        AiChatRole::Activity => match msg.step.clone() {
+            Some(step) => agent_step_bubble(step, config).into_any(),
+            None => activity_bubble(msg.content.clone(), config).into_any(),
+        },
+        AiChatRole::User => user_bubble(msg, config).into_any(),
+        AiChatRole::Assistant => {
+            assistant_bubble(msg.content.clone(), ai, workspace, config).into_any()
+        }
+        AiChatRole::System => system_bubble(msg.content.clone(), config).into_any(),
+    }
+}
+
+fn user_bubble(
+    msg: AiChatMessage,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    let attaches = msg.attachments.clone();
+    container(
+        stack((
+            text(msg.content).style(move |s| {
+                let config = config.get();
+                s.color(config.color(LapceColor::EDITOR_FOREGROUND))
+                    .font_size(config.ui.font_size() as f32)
+                    .line_height(1.55)
+            }),
+            attachment_chips(attaches, config),
+        ))
+        .style(|s| s.flex_col().max_width_pct(100.0)),
+    )
+    .style(move |s| {
+        let config = config.get();
+        s.padding_horiz(12.0)
+            .padding_vert(10.0)
+            .margin_vert(4.0)
+            .margin_horiz(8.0)
+            .margin_left_pct(10.0)
+            .border_radius(12.0)
+            .background(config.color(LapceColor::PANEL_CURRENT_BACKGROUND))
+    })
+}
+
+fn assistant_bubble(
+    content: String,
+    ai: AiData,
+    workspace: Arc<crate::workspace::LapceWorkspace>,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    let hovered = create_rw_signal(false);
+    let actions = assistant_actions(content.clone(), ai, workspace, hovered, config);
+    let md = parse_markdown(&content, 1.55, &config.get());
+    let body = dyn_stack(
+        move || md.clone(),
+        |c| match c {
+            MarkdownContent::Text(t) => format!("t:{}", t.lines().len()),
+            MarkdownContent::Image { url, .. } => format!("i:{url}"),
+            MarkdownContent::Separator => "sep".into(),
+        },
+        move |content| match content {
+            MarkdownContent::Text(text_layout) => container(
+                rich_text(move || text_layout.clone()).style(|s| s.width_pct(100.0)),
+            )
+            .style(|s| s.width_pct(100.0))
+            .into_any(),
+            MarkdownContent::Image { .. } => empty().into_any(),
+            MarkdownContent::Separator => container(empty().style(move |s| {
+                s.width_pct(100.0)
+                    .margin_vert(6.0)
+                    .height(1.0)
+                    .background(config.get().color(LapceColor::LAPCE_BORDER))
+            }))
+            .into_any(),
+        },
+    )
+    .style(|s| s.flex_col().width_pct(100.0));
+
+    container(
+        stack((body, actions))
+            .style(|s| s.flex_col().width_pct(100.0).items_start()),
+    )
+    .on_event_stop(EventListener::PointerEnter, move |_| hovered.set(true))
+    .on_event_stop(EventListener::PointerLeave, move |_| hovered.set(false))
+    .style(move |s| {
+        let config = config.get();
+        s.padding_horiz(12.0)
+            .padding_vert(10.0)
+            .margin_vert(4.0)
+            .margin_horiz(8.0)
+            .margin_right_pct(4.0)
+            .border_radius(12.0)
+            .border(1.0)
+            .border_color(config.color(LapceColor::LAPCE_BORDER))
+            .background(config.color(LapceColor::PANEL_BACKGROUND))
+    })
+}
+
+/// Copy + Retry actions, revealed on hover like Cursor's message toolbar.
+fn assistant_actions(
+    content: String,
+    ai: AiData,
+    workspace: Arc<crate::workspace::LapceWorkspace>,
+    hovered: RwSignal<bool>,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    let copy_payload = content;
+    let copy_btn = icon_button(
+        || LapceIcons::AI_COPY,
+        move || {
+            if !copy_payload.is_empty() {
+                SystemClipboard::new().put_string(copy_payload.clone());
+            }
+        },
+        || false,
+        || false,
+        || "Copy response",
+        config,
+    );
+    let retry_btn = icon_button(
+        || LapceIcons::AI_SPARKLE,
+        move || {
+            ai.retry_last(workspace.clone());
+        },
+        || false,
+        || false,
+        || "Retry",
+        config,
+    );
+
+    container(stack((copy_btn, retry_btn)).style(|s| s.items_center().gap(2.0)))
+        .style(move |s| {
+            s.margin_top(6.0)
+                .flex_row()
+                .items_center()
+                .apply_if(!hovered.get(), |s| s.hide())
+        })
+}
+
+fn system_bubble(
+    content: String,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    container(text(content).style(move |s| {
+        let config = config.get();
+        s.color(config.color(LapceColor::EDITOR_DIM))
+            .font_size((config.ui.font_size() as f32) * 0.9)
+            .line_height(1.5)
+    }))
+    .style(move |s| {
+        let config = config.get();
+        s.padding_horiz(10.0)
+            .padding_vert(6.0)
+            .margin_vert(4.0)
+            .margin_horiz(8.0)
+            .border_radius(8.0)
+            .border(1.0)
+            .border_color(config.color(LapceColor::LAPCE_WARN))
+    })
+}
+
+/// Plain activity note (no tool metadata), e.g. "Model request (round 2)…".
+fn activity_bubble(
+    content: String,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    label(move || content.clone()).style(move |s| {
+        let config = config.get();
+        s.padding_horiz(10.0)
+            .padding_vert(2.0)
+            .margin_vert(1.0)
+            .font_size((config.ui.font_size() as f32) * 0.85)
+            .color(config.color(LapceColor::EDITOR_DIM))
+    })
+}
+
+/// Collapsible agent/MCP step: icon + verb + files, expanding into
+/// arguments and tool output (Cursor shows the same structure).
+fn agent_step_bubble(
+    step: crate::ai::AiAgentStep,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    let open = create_rw_signal(false);
+    let step_for_summary = step.clone();
+    let args = Rc::new(step.arguments.clone());
+    let output = Rc::new(step.output.clone());
+    let files = step.files.clone();
+    let state = step.state;
+    let is_mcp = step.is_mcp;
+
+    let (state_icon, state_key) = match state {
+        AiStepState::Running => (LapceIcons::AI_SPARKLE, "running"),
+        AiStepState::Done => (LapceIcons::AI_CHECK, "done"),
+        AiStepState::Failed => (LapceIcons::ERROR, "failed"),
+        AiStepState::Skipped => (LapceIcons::AI_DISABLED, "skipped"),
+    };
+
+    let header = stack((
+        svg(move || {
+            config.get().ui_svg(if open.get() {
+                LapceIcons::AI_FOLD_OPEN
+            } else {
+                LapceIcons::AI_FOLD_CLOSED
+            })
+        })
+        .style(move |s| {
+            let size = (config.get().ui.icon_size() as f32) * 0.75;
+            s.size(size, size)
+                .color(config.get().color(LapceColor::EDITOR_DIM))
+        }),
+        svg(move || config.get().ui_svg(state_icon)).style(move |s| {
+            let config = config.get();
+            let size = (config.ui.icon_size() as f32) * 0.85;
+            let color = match state_key {
+                "failed" => config.color(LapceColor::LAPCE_ERROR),
+                "running" => config.color(LapceColor::EDITOR_FOREGROUND),
+                _ => config.color(LapceColor::EDITOR_DIM),
+            };
+            s.size(size, size).color(color)
+        }),
+        svg(move || {
+            config.get().ui_svg(if is_mcp {
+                LapceIcons::AI_MCP
+            } else {
+                LapceIcons::AI_TOOL
+            })
+        })
+        .style(move |s| {
+            let config = config.get();
+            let size = (config.ui.icon_size() as f32) * 0.8;
+            s.size(size, size)
+                .color(config.color(LapceColor::EDITOR_DIM))
+        }),
+        label(move || step_summary(&step_for_summary)).style(move |s| {
+            let config = config.get();
+            s.font_size((config.ui.font_size() as f32) * 0.87)
+                .color(config.color(LapceColor::EDITOR_FOREGROUND))
+                .max_width_pct(80.0)
+                .text_ellipsis()
+        }),
+    ))
+    .on_click_stop(move |_| open.update(|o| *o = !*o))
+    .style(|s| {
+        s.items_center()
+            .gap(6.0)
+            .padding_vert(2.0)
+            .cursor(CursorStyle::Pointer)
+    });
+
+    let details = stack((
+        detail_block(
+            {
+                let args = args.clone();
+                move || args.as_ref().clone()
+            },
+            "(no arguments)",
+            {
+                let args = args.clone();
+                move || {
+                    let trimmed = args.trim();
+                    !trimmed.is_empty() && trimmed != "{}"
+                }
+            },
+            config,
+        ),
+        detail_block(
+            {
+                let output = output.clone();
+                move || output.as_ref().clone()
+            },
+            "No output captured",
+            {
+                let output = output.clone();
+                move || !output.trim().is_empty()
+            },
+            config,
+        ),
+        file_chips(files, config),
+    ))
+    .style(move |s| {
+        s.flex_col()
+            .width_pct(100.0)
+            .padding_left(22.0)
+            .padding_top(4.0)
+            .gap(4.0)
+            .apply_if(!open.get(), |s| s.hide())
+    });
+
+    container(stack((header, details)).style(|s| s.flex_col().width_pct(100.0)))
+        .style(move |s| {
+            let config = config.get();
+            s.width_pct(100.0)
+                .padding_horiz(12.0)
+                .padding_vert(4.0)
+                .margin_vert(1.0)
+                .margin_horiz(8.0)
+                .border_radius(8.0)
+                .border(1.0)
+                .border_color(config.color(LapceColor::LAPCE_BORDER))
+                .background(config.color(LapceColor::PANEL_CURRENT_BACKGROUND))
+        })
+}
+
+/// Monospace, scrollable block used for tool arguments and output.
+fn detail_block(
+    content: impl Fn() -> String + 'static,
+    empty_hint: &'static str,
+    visible: impl Fn() -> bool + 'static,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    container(
+        scroll(
+            label(move || {
+                let c = content();
+                if c.trim().is_empty() {
+                    empty_hint.to_string()
+                } else {
+                    c
+                }
+            })
+            .style(move |s| {
+                let config = config.get();
+                s.font_family(config.editor.font_family.clone())
+                    .font_size((config.editor.font_size() as f32) * 0.86)
+                    .color(config.color(LapceColor::EDITOR_DIM))
+                    .line_height(1.4)
+            }),
+        )
+        .scroll_style(|s| s.hide_bars(true))
+        .style(|s| s.max_height(180.0)),
+    )
+    .style(move |s| {
+        let config = config.get();
+        s.width_pct(100.0)
+            .padding_horiz(8.0)
+            .padding_vert(6.0)
+            .border_radius(6.0)
+            .background(config.color(LapceColor::EDITOR_BACKGROUND))
+            .apply_if(!visible(), |s| s.hide())
+    })
+}
+
+fn file_chips(
+    files: Vec<String>,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    container(
+        dyn_stack(
+            move || files.clone(),
+            |f| f.clone(),
+            move |file| {
+                label(move || file.clone()).style(move |s| {
+                    let config = config.get();
+                    s.padding_horiz(6.0)
+                        .padding_vert(1.0)
+                        .border_radius(4.0)
+                        .font_size((config.ui.font_size() as f32) * 0.82)
+                        .color(config.color(LapceColor::EDITOR_FOREGROUND))
+                        .background(
+                            config.color(LapceColor::PANEL_HOVERED_BACKGROUND),
+                        )
+                        .max_width(220.0)
+                        .text_ellipsis()
+                })
+            },
+        )
+        .style(|s| s.flex_row().flex_wrap(FlexWrap::Wrap).gap(4.0)),
+    )
+    .style(|s| s.width_pct(100.0))
+}
+
+fn attachment_chips(
+    attaches: Vec<String>,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    dyn_stack(
+        move || attaches.clone(),
+        |name| name.clone(),
+        move |name| {
+            label(move || format!("@{name}")).style(move |s| {
+                let config = config.get();
+                s.margin_top(6.0)
+                    .margin_right(6.0)
+                    .padding_horiz(8.0)
+                    .padding_vert(2.0)
+                    .border_radius(8.0)
+                    .border(1.0)
+                    .border_color(config.color(LapceColor::LAPCE_BORDER))
+                    .color(config.color(LapceColor::EDITOR_DIM))
+                    .font_size((config.ui.font_size() as f32) * 0.85)
+            })
+        },
+    )
+    .style(|s| s.flex_row().flex_wrap(FlexWrap::Wrap).margin_top(4.0))
+}
+
+/// Icon button that fills its background on hover (Cursor-like toolbar button).
+fn icon_button<S: std::fmt::Display + 'static>(
+    icon: impl Fn() -> &'static str + 'static,
+    on_click: impl Fn() + 'static,
+    active_fn: impl Fn() -> bool + 'static,
+    disabled_fn: impl Fn() -> bool + 'static + Copy,
+    tooltip_: impl Fn() -> S + 'static + Clone,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    let view = container(svg(move || config.get().ui_svg(icon())).style(move |s| {
+        let config = config.get();
+        let size = (config.ui.icon_size() as f32) * 0.9;
+        s.size(size, size)
+            .color(config.color(LapceColor::EDITOR_DIM))
+            .apply_if(active_fn(), |s| {
+                s.color(config.color(LapceColor::EDITOR_FOREGROUND))
+            })
+    }))
+    .disabled(disabled_fn)
+    .on_click_stop(move |_| on_click())
+    .style(move |s| {
+        let config = config.get();
+        s.padding(4.0)
+            .border_radius(6.0)
+            .cursor(CursorStyle::Pointer)
+            .hover(|s| {
+                s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+            })
+    });
+
+    crate::app::tooltip_label(config, view, tooltip_)
+}
+
+/// Footer listing files the agent touched this conversation plus a Review
+/// action that opens the diff of those files (Cursor shows "N Files · Review").
+fn touched_files_footer(
+    ai: AiData,
+    window_tab_data: Rc<WindowTabData>,
+) -> impl View {
+    let config = ai.common.config;
+    let ai_count = ai.clone();
+    let ws_root = window_tab_data.workspace.path.clone();
+
+    let review_btn = {
+        let ai_review = ai.clone();
+        label(|| "Review".to_string())
+            .on_click_stop(move |_| {
+                let files = ai_review.touched_files();
+                let Some(first) = files.first() else {
+                    return;
+                };
+                let path = match &ws_root {
+                    Some(root) => root.join(first),
+                    None => std::path::PathBuf::from(first),
+                };
+                window_tab_data.main_split.open_file_changes(path);
+            })
+            .style(move |s| {
+                let config = config.get();
+                s.padding_horiz(8.0)
+                    .padding_vert(2.0)
+                    .border_radius(6.0)
+                    .font_size((config.ui.font_size() as f32) * 0.82)
+                    .color(config.color(LapceColor::EDITOR_FOREGROUND))
+                    .cursor(CursorStyle::Pointer)
+                    .hover(|s| {
+                        s.background(
+                            config.color(LapceColor::PANEL_HOVERED_BACKGROUND),
+                        )
+                    })
+            })
+    };
+
+    stack((
+        label(move || {
+            let n = ai_count.touched_files().len();
+            if n == 0 {
+                String::new()
+            } else if n == 1 {
+                "1 File".to_string()
+            } else {
+                format!("{n} Files")
+            }
+        })
+        .style(move |s| {
+            let config = config.get();
+            s.font_bold()
+                .font_size((config.ui.font_size() as f32) * 0.82)
+                .color(config.color(LapceColor::EDITOR_DIM))
+        }),
+        empty().style(|s| s.flex_grow(1.0)),
+        review_btn,
+    ))
+    .style(move |s| {
+        let visible = !ai.touched_files().is_empty();
+        let config = config.get();
+        s.width_pct(100.0)
+            .items_center()
+            .gap(6.0)
+            .padding_horiz(10.0)
+            .padding_vert(3.0)
+            .flex_grow(0.0)
+            .flex_shrink(0.0)
+            .border_top(1.0)
+            .border_color(config.color(LapceColor::LAPCE_BORDER))
+            .apply_if(!visible, |s| s.hide())
     })
 }
 
@@ -548,28 +941,6 @@ fn queue_bar(
     })
 }
 
-fn status_bar(ai: AiData) -> impl View {
-    let config = ai.common.config;
-    label(move || {
-        let busy = if ai.busy.get() { " • running" } else { "" };
-        let listen = if ai.listening.get() {
-            " • listening"
-        } else {
-            ""
-        };
-        format!("{}{busy}{listen}", ai.status.get())
-    })
-    .style(move |s| {
-        let config = config.get();
-        s.padding_horiz(8.0)
-            .padding_vert(4.0)
-            .flex_grow(0.0)
-            .flex_shrink(0.0)
-            .color(config.color(LapceColor::EDITOR_DIM))
-            .font_size((config.ui.font_size() as f32) * 0.9)
-    })
-}
-
 fn composer_box(
     ai: AiData,
     workspace: std::sync::Arc<crate::workspace::LapceWorkspace>,
@@ -643,7 +1014,7 @@ fn composer_box(
         )
         .style(move |s| {
             s.flex_row()
-                .flex_wrap(floem::style::FlexWrap::Wrap)
+                .flex_wrap(FlexWrap::Wrap)
                 .gap(6.0)
                 .padding_horiz(8.0)
                 .padding_top(6.0)
@@ -659,8 +1030,7 @@ fn composer_box(
                 .key_focus(ai_focus)
                 .build_editor(editor)
                 .placeholder(|| {
-                    "Message DevForge AI…  Enter send · Shift+Enter newline"
-                        .to_string()
+                    "Add a follow-up…  Enter send · Shift+Enter newline".to_string()
                 })
                 .on_cursor_pos(move |point| {
                     cursor_x.set(point.x);
@@ -703,7 +1073,7 @@ fn composer_box(
             .border(1.0)
             .border_radius(12.0)
             .border_color(config.color(LapceColor::LAPCE_BORDER))
-            .background(config.color(LapceColor::EDITOR_BACKGROUND))
+            .background(config.color(LapceColor::AI_COMPOSER_BACKGROUND))
     })
 }
 
@@ -715,128 +1085,35 @@ fn composer_toolbar(
 
     let mode_btn = {
         let ai_m = ai.clone();
-        stack((
-            label(move || format!("∞ {}", ai.mode.get().label())).style(move |s| {
-                let config = config.get();
-                s.font_size((config.ui.font_size() as f32) * 0.9)
-                    .color(config.color(LapceColor::EDITOR_FOREGROUND))
-                    .padding_left(8.0)
-                    .padding_vert(4.0)
-            }),
-            svg(move || config.get().ui_svg(LapceIcons::DROPDOWN_ARROW)).style(
-                move |s| {
-                    let config = config.get();
-                    let size = (config.ui.icon_size() as f32) * 0.85;
-                    s.size(size, size)
-                        .color(config.color(LapceColor::EDITOR_DIM))
-                        .margin_right(6.0)
-                },
-            ),
-        ))
-        .on_click_stop(move |_| {
-            ai_m.show_mode_menu();
-        })
-        .style(move |s| {
-            let config = config.get();
-            s.items_center()
-                .border_radius(8.0)
-                .cursor(CursorStyle::Pointer)
-                .hover(|s| {
-                    s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
-                })
-        })
+        dropdown_button(
+            move || ai.mode.get().label().to_string(),
+            move || ai_m.show_mode_menu(),
+            config,
+        )
     };
 
     let model_btn = {
         let ai_m = ai.clone();
-        stack((
-            label(move || {
+        dropdown_button(
+            move || {
                 let m = ai.model.get();
                 if m.is_empty() || m.eq_ignore_ascii_case("auto") {
                     "Auto".into()
                 } else {
                     m
                 }
-            })
-            .style(move |s| {
-                let config = config.get();
-                s.font_size((config.ui.font_size() as f32) * 0.9)
-                    .color(config.color(LapceColor::EDITOR_DIM))
-                    .padding_left(8.0)
-                    .padding_vert(4.0)
-            }),
-            svg(move || config.get().ui_svg(LapceIcons::DROPDOWN_ARROW)).style(
-                move |s| {
-                    let config = config.get();
-                    let size = (config.ui.icon_size() as f32) * 0.85;
-                    s.size(size, size)
-                        .color(config.color(LapceColor::EDITOR_DIM))
-                        .margin_right(6.0)
-                },
-            ),
-        ))
-        .on_click_stop(move |_| {
-            ai_m.show_model_menu();
-        })
-        .style(move |s| {
-            let config = config.get();
-            s.items_center()
-                .border_radius(8.0)
-                .cursor(CursorStyle::Pointer)
-                .hover(|s| {
-                    s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
-                })
-        })
+            },
+            move || ai_m.show_model_menu(),
+            config,
+        )
     };
 
-    let provider_btn = {
-        let ai_p = ai.clone();
-        let config_sig = config;
-        stack((
-            label(move || {
-                let p = config_sig.get().ai.provider.clone();
-                format!("◈ {p}")
-            })
-            .style(move |s| {
-                let config = config.get();
-                s.font_size((config.ui.font_size() as f32) * 0.85)
-                    .color(config.color(LapceColor::EDITOR_DIM))
-                    .padding_left(8.0)
-                    .padding_vert(4.0)
-                    .max_width(120.0)
-                    .text_ellipsis()
-            }),
-            svg(move || config.get().ui_svg(LapceIcons::DROPDOWN_ARROW)).style(
-                move |s| {
-                    let config = config.get();
-                    let size = (config.ui.icon_size() as f32) * 0.85;
-                    s.size(size, size)
-                        .color(config.color(LapceColor::EDITOR_DIM))
-                        .margin_right(6.0)
-                },
-            ),
-        ))
-        .on_click_stop(move |_| {
-            ai_p.show_provider_menu();
-        })
-        .style(move |s| {
-            let config = config.get();
-            s.items_center()
-                .border_radius(8.0)
-                .cursor(CursorStyle::Pointer)
-                .hover(|s| {
-                    s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
-                })
-        })
-    };
-
-    let left = stack((mode_btn, model_btn, provider_btn))
-        .style(|s| s.items_center().gap(4.0));
+    let left = stack((mode_btn, model_btn)).style(|s| s.items_center().gap(2.0));
 
     let attach_btn = {
         let ai_a = ai.clone();
-        clickable_icon(
-            || LapceIcons::FILE,
+        icon_button(
+            || LapceIcons::AI_ATTACH,
             move || {
                 ai_a.pick_attachments();
             },
@@ -849,8 +1126,8 @@ fn composer_toolbar(
 
     let mic_btn = {
         let ai_s = ai.clone();
-        clickable_icon(
-            || LapceIcons::KEYBOARD,
+        icon_button(
+            || LapceIcons::AI_MIC,
             move || {
                 ai_s.toggle_speech();
             },
@@ -872,9 +1149,9 @@ fn composer_toolbar(
             svg(move || {
                 let config = config.get();
                 if ai.busy.get() {
-                    config.ui_svg(LapceIcons::DEBUG_STOP)
+                    config.ui_svg(LapceIcons::AI_STOP)
                 } else {
-                    config.ui_svg(LapceIcons::START)
+                    config.ui_svg(LapceIcons::AI_SEND)
                 }
             })
             .style(move |s| {
@@ -916,4 +1193,87 @@ fn composer_toolbar(
             .padding_horiz(4.0)
             .padding_top(2.0)
     })
+}
+
+/// Text + chevron pill used for the composer's mode and model pickers.
+fn dropdown_button(
+    text_fn: impl Fn() -> String + 'static,
+    on_click: impl Fn() + 'static,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    stack((
+        label(text_fn).style(move |s| {
+            let config = config.get();
+            s.font_size((config.ui.font_size() as f32) * 0.88)
+                .color(config.color(LapceColor::EDITOR_FOREGROUND))
+                .padding_left(8.0)
+                .padding_vert(4.0)
+                .max_width(150.0)
+                .text_ellipsis()
+        }),
+        svg(move || config.get().ui_svg(LapceIcons::DROPDOWN_ARROW)).style(
+            move |s| {
+                let config = config.get();
+                let size = (config.ui.icon_size() as f32) * 0.8;
+                s.size(size, size)
+                    .color(config.color(LapceColor::EDITOR_DIM))
+                    .margin_right(6.0)
+            },
+        ),
+    ))
+    .on_click_stop(move |_| on_click())
+    .style(move |s| {
+        let config = config.get();
+        s.items_center()
+            .border_radius(8.0)
+            .cursor(CursorStyle::Pointer)
+            .hover(|s| {
+                s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+            })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ai::{AiAgentStep, AiStepState, step_summary, tool_verb};
+
+    #[test]
+    fn tool_verbs_are_human_readable() {
+        assert_eq!(tool_verb("read_file"), "Read file");
+        assert_eq!(tool_verb("str_replace"), "Edit file");
+        assert_eq!(tool_verb("write_file"), "Write file");
+        assert_eq!(tool_verb("mcp__mysql__execute_query"), "Run query");
+        assert_eq!(tool_verb("mcp__mysql__list_tables"), "List tables");
+        assert_eq!(tool_verb("unknown_tool"), "Tool call");
+    }
+
+    #[test]
+    fn step_summary_includes_touched_file() {
+        let step = AiAgentStep::new(
+            "str_replace".into(),
+            r#"{"path":"src/main.rs","old_string":"a","new_string":"b"}"#.into(),
+            false,
+        );
+        assert_eq!(step.files, vec!["src/main.rs".to_string()]);
+        assert_eq!(step_summary(&step), "Edit file · src/main.rs");
+    }
+
+    #[test]
+    fn step_summary_without_path_is_just_the_verb() {
+        let step = AiAgentStep::new(
+            "search_code".into(),
+            r#"{"query":"flake"}"#.into(),
+            false,
+        );
+        assert!(step.files.is_empty());
+        assert_eq!(step_summary(&step), "Search code");
+    }
+
+    #[test]
+    fn steps_start_in_running_state() {
+        let step = AiAgentStep::new("read_file".into(), "{}".into(), true);
+        assert_eq!(step.state, AiStepState::Running);
+        assert!(step.is_mcp);
+        assert!(step.output.is_empty());
+    }
 }
