@@ -469,8 +469,8 @@ mod tests {
         let mut chunks = Vec::new();
         let mut on_text = |s: &str| chunks.push(s.to_string());
 
-        acc.apply_delta(&json!({"content": "Hel"}), &mut on_text);
-        acc.apply_delta(&json!({"content": "lo"}), &mut on_text);
+        acc.apply_delta(&json!({"content": "Wor"}), &mut on_text);
+        acc.apply_delta(&json!({"content": "ld"}), &mut on_text);
         acc.apply_delta(
             &json!({
                 "tool_calls": [{
@@ -491,9 +491,9 @@ mod tests {
             &mut on_text,
         );
 
-        assert_eq!(chunks, vec!["Hel", "lo"]);
+        assert_eq!(chunks, vec!["Wor", "ld"]);
         let resp = acc.into_response();
-        assert_eq!(resp.content, "Hello");
+        assert_eq!(resp.content, "World");
         assert_eq!(resp.tool_calls.len(), 1);
         assert_eq!(resp.tool_calls[0].name, "read_file");
         assert_eq!(resp.tool_calls[0].id, "call_1");
