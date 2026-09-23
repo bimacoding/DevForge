@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use devforge_core::{command::FocusCommand, meta::VERSION, mode::Mode};
 use floem::{
     View,
     event::EventListener,
@@ -8,7 +9,6 @@ use floem::{
     style::{CursorStyle, Display, Position},
     views::{Decorators, container, label, stack, svg},
 };
-use devforge_core::{command::FocusCommand, meta::VERSION, mode::Mode};
 
 use crate::{
     command::{CommandExecuted, CommandKind},

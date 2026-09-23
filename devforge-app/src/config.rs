@@ -5,11 +5,11 @@ use std::{
 };
 
 use ::core::slice;
-use floem::{peniko::Color, prelude::palette::css};
-use itertools::Itertools;
 use devforge_core::directory::Directory;
 use devforge_proxy::plugin::wasi::find_all_volts;
 use devforge_rpc::plugin::VoltID;
+use floem::{peniko::Color, prelude::palette::css};
+use itertools::Itertools;
 use lsp_types::{CompletionItemKind, SymbolKind};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -982,17 +982,21 @@ impl LapceConfig {
                     .unwrap_or(0),
                 items: im::vector!["ask".into(), "edit".into(), "agent".into()],
             }),
-            ("ai", "provider") => Some(DropdownInfo {
-                active_index: ["openai-compatible", "ollama", "anthropic"]
+            ("ai", "provider") => {
+                let items: im::Vector<String> =
+                    crate::ai_providers::PROVIDER_PRESETS
+                        .iter()
+                        .map(|p| p.id.to_string())
+                        .collect();
+                let active_index = items
                     .iter()
-                    .position(|m| *m == self.ai.provider)
-                    .unwrap_or(0),
-                items: im::vector![
-                    "openai-compatible".into(),
-                    "ollama".into(),
-                    "anthropic".into()
-                ],
-            }),
+                    .position(|m| m == &self.ai.provider)
+                    .unwrap_or(0);
+                Some(DropdownInfo {
+                    active_index,
+                    items,
+                })
+            }
             _ => None,
         }
     }

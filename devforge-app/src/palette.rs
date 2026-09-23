@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -12,6 +12,12 @@ use std::{
 };
 
 use anyhow::Result;
+use devforge_core::{
+    buffer::rope_text::RopeText, command::FocusCommand, language::LapceLanguage,
+    line_ending::LineEnding, mode::Mode, movement::Movement, selection::Selection,
+    syntax::Syntax,
+};
+use devforge_rpc::proxy::ProxyResponse;
 use floem::{
     ext_event::{create_ext_action, create_signal_from_channel},
     keyboard::Modifiers,
@@ -22,12 +28,6 @@ use floem::{
 };
 use im::Vector;
 use itertools::Itertools;
-use devforge_core::{
-    buffer::rope_text::RopeText, command::FocusCommand, language::LapceLanguage,
-    line_ending::LineEnding, mode::Mode, movement::Movement, selection::Selection,
-    syntax::Syntax,
-};
-use devforge_rpc::proxy::ProxyResponse;
 use lapce_xi_rope::Rope;
 use lsp_types::{DocumentSymbol, DocumentSymbolResponse};
 use nucleo::Utf32Str;
@@ -40,7 +40,8 @@ use self::{
 };
 use crate::{
     command::{
-        CommandExecuted, CommandKind, InternalCommand, LapceCommand, WindowCommand,
+        CommandExecuted, CommandKind, InternalCommand, LapceCommand,
+        LapceWorkbenchCommand, WindowCommand,
     },
     db::LapceDb,
     debug::{RunDebugConfigs, RunDebugMode},
@@ -347,6 +348,9 @@ impl PaletteData {
             PaletteKind::SshHost => {
                 "Type [user@]host or select a previously connected workspace below"
             }
+            PaletteKind::CloneRepository => {
+                "Enter a git repository URL (https://… or git@…)"
+            }
             PaletteKind::DiffFiles => {
                 if self.left_diff_path.with(Option::is_some) {
                     "Select right file"
@@ -392,6 +396,9 @@ impl PaletteData {
             }
             PaletteKind::SshHost => {
                 self.get_ssh_hosts();
+            }
+            PaletteKind::CloneRepository => {
+                self.items.set(im::Vector::new());
             }
             #[cfg(windows)]
             PaletteKind::WslHost => {
@@ -799,20 +806,14 @@ impl PaletteData {
     }
 
     fn get_ssh_hosts(&self) {
-        let db: Arc<LapceDb> = use_context().unwrap();
-        let workspaces = db.recent_workspaces().unwrap_or_default();
-        let mut hosts = HashSet::new();
-        for workspace in workspaces.iter() {
-            if let LapceWorkspaceType::RemoteSSH(host) = &workspace.kind {
-                hosts.insert(host.clone());
-            }
-        }
-
+        // Source of truth: ~/.ssh/config (Cursor-style). Do not mix stale
+        // ssh_hosts.json / recent workspace entries — those diverge from config.
+        let hosts = crate::ssh_config::read_ssh_config_hosts().unwrap_or_default();
         let items = hosts
-            .iter()
+            .into_iter()
             .map(|host| PaletteItem {
-                content: PaletteItemContent::SshHost { host: host.clone() },
-                filter_text: host.to_string(),
+                filter_text: host.display_name(),
+                content: PaletteItemContent::SshHost { host },
                 score: 0,
                 indices: vec![],
             })
@@ -822,7 +823,7 @@ impl PaletteData {
 
     #[cfg(windows)]
     fn get_wsl_hosts(&self) {
-        use std::{os::windows::process::CommandExt, process};
+        use std::{collections::HashSet, os::windows::process::CommandExt, process};
         let cmd = process::Command::new("wsl")
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .arg("-l")
@@ -1203,11 +1204,12 @@ impl PaletteData {
                     );
                 }
                 PaletteItemContent::SshHost { host } => {
+                    let path = crate::proxy::resolve_ssh_home(host);
                     self.common.window_common.window_command.send(
                         WindowCommand::SetWorkspace {
                             workspace: LapceWorkspace {
                                 kind: LapceWorkspaceType::RemoteSSH(host.clone()),
-                                path: None,
+                                path: Some(path),
                                 last_open: 0,
                             },
                         },
@@ -1333,15 +1335,28 @@ impl PaletteData {
         } else if self.kind.get_untracked() == PaletteKind::SshHost {
             let input = self.input.with_untracked(|input| input.input.clone());
             let ssh = SshHost::from_string(&input);
+            let path = crate::proxy::resolve_ssh_home(&ssh);
             self.common.window_common.window_command.send(
                 WindowCommand::SetWorkspace {
                     workspace: LapceWorkspace {
                         kind: LapceWorkspaceType::RemoteSSH(ssh),
-                        path: None,
+                        path: Some(path),
                         last_open: 0,
                     },
                 },
             );
+        } else if self.kind.get_untracked() == PaletteKind::CloneRepository {
+            let input = self.input.with_untracked(|input| input.input.clone());
+            if !input.trim().is_empty() {
+                self.common
+                    .lapce_command
+                    .send(crate::command::LapceCommand {
+                        kind: CommandKind::Workbench(
+                            LapceWorkbenchCommand::CloneRepository,
+                        ),
+                        data: Some(serde_json::json!(input)),
+                    });
+            }
         }
     }
 

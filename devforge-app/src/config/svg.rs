@@ -10,7 +10,8 @@ use crate::config::LOGO;
 
 const CODICONS_ICONS_DIR: Dir =
     include_dir!("$CARGO_MANIFEST_DIR/../icons/codicons");
-const DEVFORGE_ICONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/../icons/devforge");
+const DEVFORGE_ICONS_DIR: Dir =
+    include_dir!("$CARGO_MANIFEST_DIR/../icons/devforge");
 
 #[derive(Debug, Clone)]
 pub struct SvgStore {
@@ -41,13 +42,14 @@ impl SvgStore {
 
     pub fn get_default_svg(&mut self, name: &str) -> String {
         if !self.svgs.contains_key(name) {
-            let file = if name == "devforge_remote.svg" || name == "devforge_logo.svg" {
-                DEVFORGE_ICONS_DIR.get_file(name).unwrap()
-            } else {
-                CODICONS_ICONS_DIR
-                    .get_file(name)
-                    .unwrap_or_else(|| panic!("Failed to unwrap {name}"))
-            };
+            let file =
+                if name == "devforge_remote.svg" || name == "devforge_logo.svg" {
+                    DEVFORGE_ICONS_DIR.get_file(name).unwrap()
+                } else {
+                    CODICONS_ICONS_DIR
+                        .get_file(name)
+                        .unwrap_or_else(|| panic!("Failed to unwrap {name}"))
+                };
             let content = file.contents_utf8().unwrap();
             self.svgs.insert(name.to_string(), content.to_string());
         }

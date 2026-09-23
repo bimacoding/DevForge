@@ -1,5 +1,10 @@
 use std::{path::Path, rc::Rc, sync::Arc};
 
+use devforge_core::selection::Selection;
+use devforge_rpc::{
+    file::{FileNodeViewData, FileNodeViewKind, Naming},
+    source_control::FileDiffKind,
+};
 use floem::{
     View,
     event::{Event, EventListener},
@@ -11,20 +16,15 @@ use floem::{
     style::{AlignItems, CursorStyle, Position, Style},
     text::Style as FontStyle,
     views::{
-        Container, Decorators, container, dyn_stack, label, scroll, stack, svg,
-        virtual_stack,
+        Container, Decorators, container, dyn_stack, empty, label, scroll, stack,
+        svg, virtual_stack,
     },
-};
-use devforge_core::selection::Selection;
-use devforge_rpc::{
-    file::{FileNodeViewData, FileNodeViewKind, Naming},
-    source_control::FileDiffKind,
 };
 use lapce_xi_rope::Rope;
 
 use super::{data::FileExplorerData, node::FileNodeVirtualList};
 use crate::{
-    app::clickable_icon,
+    app::{clickable_icon, tooltip_label},
     command::InternalCommand,
     config::{LapceConfig, color::LapceColor, icon::LapceIcons},
     editor_tab::{EditorTabChild, EditorTabData},
@@ -167,34 +167,109 @@ fn file_node_text_view(
         FileNodeViewKind::Path(path) => {
             if node.is_root {
                 let file = path.clone();
-                container((
-                    label(move || {
-                        file.file_name()
-                            .map(|f| f.to_string_lossy().to_string())
-                            .unwrap_or_default()
-                    })
-                    .style(move |s| {
-                        s.height(ui_line_height.get())
-                            .color(file_node_text_color(
+                let root_path = path.clone();
+                let select = data.select;
+                let explorer_new_file = data.clone();
+                let explorer_new_dir = data.clone();
+                let explorer_refresh = data.clone();
+                let explorer_collapse = data.clone();
+                let root_hovered = create_rw_signal(false);
+                let show_actions = move || {
+                    let hovered = root_hovered.get();
+                    let selected = select.with(|s| match s {
+                        Some(FileNodeViewKind::Path(p)) => p == &root_path,
+                        None => true,
+                        _ => false,
+                    });
+                    hovered || selected
+                };
+
+                let tip_path = path.clone();
+                container(
+                    stack((
+                        tooltip_label(
+                            config,
+                            label(move || {
+                                file.file_name()
+                                    .map(|f| f.to_string_lossy().to_string())
+                                    .unwrap_or_default()
+                            })
+                            .style(move |s| {
+                                s.height(ui_line_height.get())
+                                    .color(file_node_text_color(
+                                        config,
+                                        node.clone(),
+                                        source_control.clone(),
+                                    ))
+                                    .padding_right(5.0)
+                                    .selectable(false)
+                                    .flex_shrink(0.0)
+                            }),
+                            move || tip_path.to_string_lossy().to_string(),
+                        ),
+                        // Push action icons to the trailing edge (path is tooltip-only).
+                        empty().style(|s| {
+                            s.flex_grow(1.0).flex_basis(0.0).min_width(0.0)
+                        }),
+                        stack((
+                            clickable_icon(
+                                || LapceIcons::FILE_EXPLORER_NEW_FILE,
+                                move || {
+                                    explorer_new_file.start_new_node(false);
+                                },
+                                || false,
+                                || false,
+                                || "New File",
                                 config,
-                                node.clone(),
-                                source_control.clone(),
-                            ))
-                            .padding_right(5.0)
-                            .selectable(false)
-                    }),
-                    label(move || path.to_string_lossy().to_string()).style(
-                        move |s| {
-                            s.height(ui_line_height.get())
-                                .color(
-                                    config
-                                        .get()
-                                        .color(LapceColor::PANEL_FOREGROUND_DIM),
-                                )
-                                .selectable(false)
-                        },
-                    ),
-                ))
+                            ),
+                            clickable_icon(
+                                || LapceIcons::FILE_EXPLORER_NEW_DIRECTORY,
+                                move || {
+                                    explorer_new_dir.start_new_node(true);
+                                },
+                                || false,
+                                || false,
+                                || "New Folder",
+                                config,
+                            ),
+                            clickable_icon(
+                                || LapceIcons::FILE_EXPLORER_REFRESH,
+                                move || {
+                                    explorer_refresh.reload();
+                                },
+                                || false,
+                                || false,
+                                || "Refresh Explorer",
+                                config,
+                            ),
+                            clickable_icon(
+                                || LapceIcons::FILE_EXPLORER_COLLAPSE,
+                                move || {
+                                    explorer_collapse.collapse_all();
+                                },
+                                || false,
+                                || false,
+                                || "Collapse Folders",
+                                config,
+                            ),
+                        ))
+                        .style(move |s| {
+                            s.items_center()
+                                .flex_shrink(0.0)
+                                .col_gap(2.0)
+                                .apply_if(!show_actions(), |s| s.hide())
+                        })
+                        .on_event_stop(EventListener::PointerDown, |_| {}),
+                    ))
+                    .style(|s| s.width_full().min_width(0.0).items_center()),
+                )
+                .on_event_cont(EventListener::PointerEnter, move |_| {
+                    root_hovered.set(true);
+                })
+                .on_event_cont(EventListener::PointerLeave, move |_| {
+                    root_hovered.set(false);
+                })
+                .style(|s| s.width_full().min_width(0.0))
             } else {
                 container(
                     label(move || {
@@ -435,6 +510,10 @@ fn file_explorer_view(
                     view.on_click_stop({
                         let kind = kind.clone();
                         move |_| {
+                            click_data
+                                .common
+                                .focus
+                                .set(Focus::Panel(PanelKind::FileExplorer));
                             click_data.click(&click_path, config);
                             select.update(|x| *x = Some(kind.clone()));
                         }

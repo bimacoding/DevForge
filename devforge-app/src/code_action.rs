@@ -1,12 +1,12 @@
 use std::rc::Rc;
 
+use devforge_core::{command::FocusCommand, mode::Mode, movement::Movement};
+use devforge_rpc::plugin::PluginId;
 use floem::{
     keyboard::Modifiers,
     peniko::kurbo::Rect,
     reactive::{RwSignal, Scope, SignalGet, SignalUpdate},
 };
-use devforge_core::{command::FocusCommand, mode::Mode, movement::Movement};
-use devforge_rpc::plugin::PluginId;
 use lsp_types::CodeActionOrCommand;
 
 use crate::{

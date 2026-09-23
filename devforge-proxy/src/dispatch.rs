@@ -13,13 +13,6 @@ use std::{
 use alacritty_terminal::{event::WindowSize, event_loop::Msg};
 use anyhow::{Context, Result, anyhow};
 use crossbeam_channel::Sender;
-use git2::{
-    DiffOptions, ErrorCode::NotFound, Oid, Repository, build::CheckoutBuilder,
-};
-use grep_matcher::Matcher;
-use grep_regex::RegexMatcherBuilder;
-use grep_searcher::{SearcherBuilder, sinks::UTF8};
-use indexmap::IndexMap;
 use devforge_rpc::{
     RequestId, RpcError,
     buffer::BufferId,
@@ -34,6 +27,13 @@ use devforge_rpc::{
     style::{LineStyle, SemanticStyles},
     terminal::TermId,
 };
+use git2::{
+    DiffOptions, ErrorCode::NotFound, Oid, Repository, build::CheckoutBuilder,
+};
+use grep_matcher::Matcher;
+use grep_regex::RegexMatcherBuilder;
+use grep_searcher::{SearcherBuilder, sinks::UTF8};
+use indexmap::IndexMap;
 use lapce_xi_rope::Rope;
 use lsp_types::{
     CancelParams, MessageType, NumberOrString, Position, Range, ShowMessageParams,

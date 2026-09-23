@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
-use indexmap::IndexMap;
 use devforge_core::mode::Modes;
+use indexmap::IndexMap;
 use tracing::{debug, error};
 
 use super::keymap::{KeyMap, KeyMapPress};

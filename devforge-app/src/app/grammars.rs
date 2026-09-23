@@ -110,7 +110,8 @@ fn download_release(
 
     for asset in &release.assets {
         if asset.name.starts_with(file_name) {
-            let mut resp = devforge_proxy::get_url(&asset.browser_download_url, None)?;
+            let mut resp =
+                devforge_proxy::get_url(&asset.browser_download_url, None)?;
             if !resp.status().is_success() {
                 return Err(anyhow!("download file error {}", resp.text()?));
             }

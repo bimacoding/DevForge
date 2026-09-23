@@ -2,6 +2,15 @@ use std::{
     cmp, collections::BTreeMap, ops::DerefMut, path::PathBuf, rc::Rc, sync::Arc,
 };
 
+use devforge_core::{
+    buffer::{Buffer, diff::DiffLines, rope_text::RopeText},
+    cursor::{CursorAffinity, CursorMode},
+    selection::SelRegion,
+};
+use devforge_rpc::{
+    dap_types::{DapId, SourceBreakpoint},
+    plugin::PluginId,
+};
 use floem::{
     Renderer, View, ViewId,
     action::{set_ime_allowed, set_ime_cursor_area},
@@ -41,15 +50,6 @@ use floem::{
     },
 };
 use itertools::Itertools;
-use devforge_core::{
-    buffer::{Buffer, diff::DiffLines, rope_text::RopeText},
-    cursor::{CursorAffinity, CursorMode},
-    selection::SelRegion,
-};
-use devforge_rpc::{
-    dap_types::{DapId, SourceBreakpoint},
-    plugin::PluginId,
-};
 use lapce_xi_rope::find::CaseMatching;
 use lsp_types::CodeLens;
 

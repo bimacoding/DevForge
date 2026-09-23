@@ -12,13 +12,13 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use jsonrpc_lite::{Id, Params};
 use devforge_core::directory::Directory;
 use devforge_rpc::{
     RpcError,
     plugin::{PluginId, VoltID, VoltInfo, VoltMetadata},
     style::LineStyle,
 };
+use jsonrpc_lite::{Id, Params};
 use lapce_xi_rope::{Rope, RopeDelta};
 use lsp_types::{
     DocumentFilter, InitializeParams, InitializedParams,

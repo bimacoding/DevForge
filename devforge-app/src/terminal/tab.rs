@@ -1,7 +1,7 @@
 use std::{rc::Rc, sync::Arc};
 
-use floem::reactive::{RwSignal, Scope, SignalGet, SignalWith};
 use devforge_rpc::terminal::TerminalProfile;
+use floem::reactive::{RwSignal, Scope, SignalGet, SignalWith};
 
 use super::data::TerminalData;
 use crate::{

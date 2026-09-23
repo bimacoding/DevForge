@@ -78,6 +78,11 @@ name = "Lapce Codicons"
 "directory.closed" = "folder.svg"
 "directory.opened" = "folder-opened.svg"
 
+"file_explorer.new_file" = "new-file.svg"
+"file_explorer.new_directory" = "new-folder.svg"
+"file_explorer.refresh" = "refresh.svg"
+"file_explorer.collapse" = "fold.svg"
+
 "panel.restore" = "chevron-down.svg"
 "panel.maximise" = "chevron-right.svg"
 

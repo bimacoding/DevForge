@@ -11,16 +11,18 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use crossbeam_channel::{Receiver, Sender};
-use dyn_clone::DynClone;
-use floem_editor_core::buffer::rope_text::{RopeText, RopeTextRef};
-use jsonrpc_lite::{Id, JsonRpc, Params};
-use devforge_core::{encoding::offset_utf16_to_utf8, rope_text_pos::RopeTextPosition};
+use devforge_core::{
+    encoding::offset_utf16_to_utf8, rope_text_pos::RopeTextPosition,
+};
 use devforge_rpc::{
     RpcError,
     core::{CoreRpcHandler, ServerStatusParams},
     plugin::{PluginId, VoltID},
     style::{LineStyle, Style},
 };
+use dyn_clone::DynClone;
+use floem_editor_core::buffer::rope_text::{RopeText, RopeTextRef};
+use jsonrpc_lite::{Id, JsonRpc, Params};
 use lapce_xi_rope::{Rope, RopeDelta};
 use lsp_types::{
     CancelParams, CodeActionProviderCapability, DidChangeTextDocumentParams,

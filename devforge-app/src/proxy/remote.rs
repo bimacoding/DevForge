@@ -5,7 +5,6 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use flate2::read::GzDecoder;
 use devforge_core::{
     directory::Directory,
     meta::{self, ReleaseType},
@@ -16,6 +15,7 @@ use devforge_rpc::{
     proxy::{ProxyRpc, ProxyRpcHandler},
     stdio_transport,
 };
+use flate2::read::GzDecoder;
 use thiserror::Error;
 use tracing::{debug, error};
 
@@ -122,12 +122,16 @@ pub fn start_remote(
         .args([&remote_proxy_file, "--version"])
         .output()
         .map(|output| {
-            if meta::RELEASE == ReleaseType::Debug {
-                String::from_utf8_lossy(&output.stdout).starts_with("Lapce-proxy")
-            } else {
-                String::from_utf8_lossy(&output.stdout).trim()
-                    == format!("Lapce-proxy {}", meta::VERSION)
-            }
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Accept both legacy Lapce-proxy and DevForge proxy version banners.
+            let ok_debug = meta::RELEASE == ReleaseType::Debug
+                && (stdout.contains("Lapce-proxy")
+                    || stdout.contains("DevForge")
+                    || stdout.contains("devforge"));
+            let expected = format!("Lapce-proxy {}", meta::VERSION);
+            let ok_release = stdout.trim() == expected
+                || stdout.trim() == format!("DevForge-proxy {}", meta::VERSION);
+            output.status.success() && (ok_debug || ok_release)
         })
         .unwrap_or(false)
     {
@@ -139,6 +143,22 @@ pub fn start_remote(
             &remote_proxy_file,
         )?;
     };
+
+    // Final sanity check — never spawn a missing remote binary.
+    let version_ok = remote
+        .command_builder()
+        .args([&remote_proxy_file, "--version"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !version_ok {
+        return Err(anyhow!(
+            "Remote proxy missing at `{remote_proxy_file}`. \
+             Debug builds cannot download GitHub `nightly` (404). \
+             Place `devforge-proxy-{platform}-{architecture}` (or a .gz) in the local proxy folder, \
+             set DEVFORGE_REMOTE_PROXY to that file, or publish a matching GitHub release."
+        ));
+    }
 
     debug!("remote proxy path: {remote_proxy_path}");
 
@@ -333,41 +353,58 @@ fn download_remote(
         };
         if !cmd.success() {
             let proxy_filename = format!("devforge-proxy-{platform}-{architecture}");
-            let local_proxy_file = Directory::proxy_directory()
-                .ok_or_else(|| anyhow!("can't find proxy directory"))?
-                .join(&proxy_filename);
-            // remove possibly outdated proxy
-            if local_proxy_file.exists() {
-                // TODO: add proper proxy version detection and update proxy
-                // when needed
-                std::fs::remove_file(&local_proxy_file)?;
-            }
+            let proxy_dir = Directory::proxy_directory()
+                .ok_or_else(|| anyhow!("can't find proxy directory"))?;
+            let download_path = proxy_dir.join(&proxy_filename);
+
+            // Try GitHub release artifact (stable/nightly). Debug builds usually 404
+            // on DevForge — fall back to Lapce nightly (compatible enough for debug).
             let proxy_version = match meta::RELEASE {
                 meta::ReleaseType::Stable => meta::VERSION,
                 _ => "nightly",
             };
-            let url = format!(
-                "https://github.com/bimacoding/DevForge/releases/download/{proxy_version}/{proxy_filename}.gz"
-            );
-            debug!("proxy download URI: {url}");
-            let mut resp = devforge_proxy::get_url(url, None).expect("request failed");
-            if resp.status().is_success() {
-                let mut out = std::fs::File::create(&local_proxy_file)
-                    .expect("failed to create file");
-                let mut gz = GzDecoder::new(&mut resp);
-                std::io::copy(&mut gz, &mut out).expect("failed to copy content");
-            } else {
-                error!("proxy download failed with: {}", resp.status());
+            let urls = [
+                format!(
+                    "https://github.com/bimacoding/DevForge/releases/download/{proxy_version}/{proxy_filename}.gz"
+                ),
+                format!(
+                    "https://github.com/lapce/lapce/releases/download/nightly/lapce-proxy-{platform}-{architecture}.gz"
+                ),
+            ];
+            let mut downloaded = false;
+            for url in &urls {
+                debug!("proxy download URI: {url}");
+                match try_download_gzip_proxy(url, &download_path) {
+                    Ok(()) => {
+                        downloaded = true;
+                        break;
+                    }
+                    Err(e) => {
+                        error!("proxy download failed from {url}: {e}");
+                    }
+                }
+            }
+            if !downloaded {
+                error!("all proxy download URLs failed; will try local binary next");
             }
 
+            let local_proxy_file = resolve_local_proxy_binary(platform, architecture)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Remote proxy install failed and no local `{proxy_filename}` was found.\n\
+                         • Publish GitHub release `{proxy_version}/{proxy_filename}.gz`, or\n\
+                         • Copy the linux/darwin proxy binary to:\n  {}\n\
+                         • Or set env DEVFORGE_REMOTE_PROXY=/path/to/proxy",
+                        proxy_dir.display()
+                    )
+                })?;
+
             match platform {
-                // Windows creates all dirs in provided path
                 HostPlatform::Windows => remote
                     .command_builder()
                     .arg("mkdir")
                     .arg(remote_proxy_path)
                     .status()?,
-                // Unix needs -p to do same
                 _ => remote
                     .command_builder()
                     .arg("mkdir")
@@ -378,17 +415,123 @@ fn download_remote(
 
             remote.upload_file(&local_proxy_file, remote_proxy_file)?;
             if platform != &HostPlatform::Windows {
-                remote
+                let chmod = remote
                     .command_builder()
                     .arg("chmod")
                     .arg("+x")
                     .arg(remote_proxy_file)
                     .status()?;
+                if !chmod.success() {
+                    anyhow::bail!("chmod +x `{remote_proxy_file}` failed");
+                }
             }
         }
     }
 
     Ok(())
+}
+
+fn try_download_gzip_proxy(url: &str, dest: &Path) -> Result<()> {
+    let mut resp = devforge_proxy::get_url(url, None)?;
+    if !resp.status().is_success() {
+        anyhow::bail!("HTTP {}", resp.status());
+    }
+    let mut out = std::fs::File::create(dest)
+        .map_err(|e| anyhow!("failed to create {}: {e}", dest.display()))?;
+    let mut gz = GzDecoder::new(&mut resp);
+    std::io::copy(&mut gz, &mut out)
+        .map_err(|e| anyhow!("failed to decompress proxy download: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(dest)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(dest, perms)?;
+    }
+    Ok(())
+}
+
+/// Locate a proxy binary that can be uploaded to the remote host.
+fn resolve_local_proxy_binary(
+    platform: &HostPlatform,
+    architecture: &HostArchitecture,
+) -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    if let Ok(explicit) = std::env::var("DEVFORGE_REMOTE_PROXY") {
+        let p = PathBuf::from(explicit);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+
+    let proxy_dir = Directory::proxy_directory()?;
+    let name = format!("devforge-proxy-{platform}-{architecture}");
+    let candidates = [proxy_dir.join(&name), proxy_dir.join(format!("{name}.exe"))];
+    for c in &candidates {
+        if c.is_file() {
+            return Some(c.clone());
+        }
+    }
+
+    // Same-OS/arch: reuse a locally built `devforge-proxy` next to this executable
+    // or under common cargo target folders.
+    if local_platform_matches(platform, architecture) {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                for name in ["devforge-proxy", "devforge-proxy.exe", "lapce-proxy"] {
+                    let p = dir.join(name);
+                    if p.is_file() {
+                        return Some(p);
+                    }
+                }
+                // target/fastdev/devforge → look for sibling /fastdev/devforge-proxy
+                for name in ["devforge-proxy", "devforge-proxy.exe"] {
+                    let p = dir.join(name);
+                    if p.is_file() {
+                        return Some(p);
+                    }
+                }
+            }
+        }
+    }
+
+    // Last resort: previously downloaded (possibly incomplete) artifact path —
+    // only if the file actually exists after a successful download attempt.
+    let downloaded =
+        proxy_dir.join(format!("devforge-proxy-{platform}-{architecture}"));
+    if downloaded.is_file() {
+        return Some(downloaded);
+    }
+
+    None
+}
+
+fn local_platform_matches(
+    platform: &HostPlatform,
+    architecture: &HostArchitecture,
+) -> bool {
+    let local_os = if cfg!(target_os = "windows") {
+        HostPlatform::Windows
+    } else if cfg!(target_os = "macos") {
+        HostPlatform::Darwin
+    } else if cfg!(target_os = "linux") {
+        HostPlatform::Linux
+    } else {
+        HostPlatform::UnknownOS
+    };
+
+    let local_arch = if cfg!(target_arch = "x86_64") {
+        HostArchitecture::AMD64
+    } else if cfg!(target_arch = "aarch64") {
+        HostArchitecture::ARM64
+    } else if cfg!(target_arch = "x86") {
+        HostArchitecture::X86
+    } else {
+        HostArchitecture::UnknownArch
+    };
+
+    local_os == *platform && local_arch == *architecture
 }
 
 fn host_specification(

@@ -4,16 +4,6 @@ use std::{
     rc::Rc,
 };
 
-use floem::{
-    action::save_as,
-    ext_event::create_ext_action,
-    file::{FileDialogOptions, FileInfo},
-    keyboard::Modifiers,
-    peniko::kurbo::{Point, Rect, Vec2},
-    reactive::{Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
-    views::editor::id::EditorId,
-};
-use itertools::Itertools;
 use devforge_core::{
     buffer::rope_text::RopeText, command::FocusCommand, cursor::Cursor,
     rope_text_pos::RopeTextPosition, selection::Selection, syntax::Syntax,
@@ -24,6 +14,16 @@ use devforge_rpc::{
     plugin::{PluginId, VoltID},
     proxy::ProxyResponse,
 };
+use floem::{
+    action::save_as,
+    ext_event::create_ext_action,
+    file::{FileDialogOptions, FileInfo},
+    keyboard::Modifiers,
+    peniko::kurbo::{Point, Rect, Vec2},
+    reactive::{Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
+    views::editor::id::EditorId,
+};
+use itertools::Itertools;
 use lapce_xi_rope::{Rope, spans::SpansBuilder};
 use lsp_types::{
     CodeAction, CodeActionOrCommand, DiagnosticSeverity, DocumentChangeOperation,
@@ -1318,12 +1318,18 @@ impl MainSplitData {
         if let Some(editor) = self.editors.remove(editor_id) {
             editor.save_doc_position();
 
-            let doc = editor.doc();
+            // Skip cleanup if the editor scope was already disposed (stale entry
+            // left in the editors map after a Floem tab child scope dispose).
+            let Some(doc) = editor.try_doc() else {
+                return;
+            };
             let (content, _) = (doc.content.get_untracked(), doc.is_pristine());
             if let DocContent::Scratch { name, .. } = content {
                 let doc_exists = self.editors.with_editors_untracked(|editors| {
                     editors.iter().any(|(_, editor_data)| {
-                        let doc = editor_data.doc();
+                        let Some(doc) = editor_data.try_doc() else {
+                            return false;
+                        };
 
                         if let DocContent::Scratch {
                             name: current_name, ..

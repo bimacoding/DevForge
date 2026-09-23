@@ -15,11 +15,11 @@ use alacritty_terminal::{
 };
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
-use directories::BaseDirs;
 use devforge_rpc::{
     core::CoreRpcHandler,
     terminal::{TermId, TerminalProfile},
 };
+use directories::BaseDirs;
 use polling::PollMode;
 
 const READ_BUFFER_SIZE: usize = 0x10_0000;

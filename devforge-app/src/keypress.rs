@@ -7,6 +7,7 @@ mod press;
 use std::{path::PathBuf, rc::Rc, str::FromStr, time::SystemTime};
 
 use anyhow::Result;
+use devforge_core::mode::{Mode, Modes};
 use floem::{
     keyboard::{Key, KeyEvent, KeyEventExtModifierSupplement, Modifiers, NamedKey},
     pointer::{MouseButton, PointerButton, PointerInputEvent},
@@ -14,7 +15,6 @@ use floem::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use devforge_core::mode::{Mode, Modes};
 
 pub use self::press::KeyPress;
 use self::{

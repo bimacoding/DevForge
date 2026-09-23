@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use devforge_rpc::plugin::VoltID;
 use floem::{
     peniko::{
         Color,
@@ -15,7 +16,6 @@ use floem::{
     },
     views::editor::id::EditorId,
 };
-use devforge_rpc::plugin::VoltID;
 use serde::{Deserialize, Serialize};
 
 use crate::{

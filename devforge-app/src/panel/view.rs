@@ -65,13 +65,22 @@ pub fn foldable_panel_section(
             s.padding_horiz(10.0)
                 .padding_vert(6.0)
                 .width_pct(100.0)
+                .flex_grow(0.0)
+                .flex_shrink(0.0)
                 .cursor(CursorStyle::Pointer)
                 .background(config.get().color(LapceColor::EDITOR_BACKGROUND))
         })
         .on_click_stop(move |_| {
             open.update(|open| *open = !*open);
         }),
-        child.style(move |s| s.apply_if(!open.get(), |s| s.hide())),
+        // Grow into remaining panel height so nested scroll views can clip/scroll.
+        child.style(move |s| {
+            s.flex_grow(1.0)
+                .flex_basis(0.0)
+                .min_height(0.0)
+                .min_width(0.0)
+                .apply_if(!open.get(), |s| s.hide())
+        }),
     ))
 }
 

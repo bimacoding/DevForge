@@ -1,6 +1,10 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use devforge_core::{
+    buffer::rope_text::{RopeText, RopeTextRef},
+    cursor::CursorAffinity,
+};
 use floem::{
     reactive::Scope,
     text::{Attrs, AttrsList, FamilyOwned, TextLayout, Wrap},
@@ -12,10 +16,6 @@ use floem::{
             TextLayoutProvider, VLine,
         },
     },
-};
-use devforge_core::{
-    buffer::rope_text::{RopeText, RopeTextRef},
-    cursor::CursorAffinity,
 };
 use lapce_xi_rope::Rope;
 

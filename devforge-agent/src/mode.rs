@@ -18,6 +18,14 @@ impl AgentMode {
         }
     }
 
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ask => "Ask",
+            Self::Edit => "Edit",
+            Self::Agent => "Agent",
+        }
+    }
+
     pub fn from_str_loose(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
             "edit" => Self::Edit,

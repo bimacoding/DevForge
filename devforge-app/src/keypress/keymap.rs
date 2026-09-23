@@ -1,10 +1,10 @@
 use std::{fmt::Display, str::FromStr};
 
+use devforge_core::mode::Modes;
 use floem::{
     keyboard::{Key, KeyCode, Modifiers, NamedKey, PhysicalKey},
     pointer::{MouseButton, PointerButton},
 };
-use devforge_core::mode::Modes;
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum KeymapMatch {

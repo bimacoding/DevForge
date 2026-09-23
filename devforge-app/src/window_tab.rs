@@ -11,6 +11,20 @@ use std::{
 };
 
 use alacritty_terminal::vte::ansi::Handler;
+use devforge_core::{
+    command::FocusCommand, cursor::CursorAffinity, directory::Directory, meta,
+    mode::Mode, register::Register,
+};
+use devforge_rpc::{
+    RpcError,
+    core::CoreNotification,
+    dap_types::{ConfigSource, RunDebugConfig},
+    file::{Naming, PathObject},
+    plugin::PluginId,
+    proxy::{ProxyResponse, ProxyRpcHandler, ProxyStatus},
+    source_control::FileDiff,
+    terminal::TermId,
+};
 use floem::{
     ViewId,
     action::{TimerToken, open_file, remove_overlay},
@@ -30,20 +44,6 @@ use floem::{
 use im::HashMap;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use devforge_core::{
-    command::FocusCommand, cursor::CursorAffinity, directory::Directory, meta,
-    mode::Mode, register::Register,
-};
-use devforge_rpc::{
-    RpcError,
-    core::CoreNotification,
-    dap_types::{ConfigSource, RunDebugConfig},
-    file::{Naming, PathObject},
-    plugin::PluginId,
-    proxy::{ProxyResponse, ProxyRpcHandler, ProxyStatus},
-    source_control::FileDiff,
-    terminal::TermId,
-};
 use lsp_types::{
     CodeActionOrCommand, CodeLens, Diagnostic, ProgressParams, ProgressToken,
     ShowMessageParams,
@@ -87,6 +87,7 @@ use crate::{
     proxy::{ProxyData, new_proxy},
     rename::RenameData,
     source_control::SourceControlData,
+    ssh_hosts::SshHostsData,
     terminal::{
         event::{TermEvent, TermNotification, terminal_update_process},
         panel::TerminalPanelData,
@@ -103,6 +104,7 @@ pub enum Focus {
     CodeAction,
     Rename,
     AboutPopup,
+    SshHostsPopup,
     Panel(PanelKind),
 }
 
@@ -184,6 +186,7 @@ pub struct WindowTabData {
     pub ai: crate::ai::AiData,
     pub call_hierarchy_data: CallHierarchyData,
     pub about_data: AboutData,
+    pub ssh_hosts_data: SshHostsData,
     pub alert_data: AlertBoxData,
     pub layout_rect: RwSignal<Rect>,
     pub title_height: RwSignal<f64>,
@@ -543,6 +546,8 @@ impl WindowTabData {
         }
 
         let about_data = AboutData::new(cx, common.focus);
+        let ssh_hosts_data =
+            SshHostsData::new(cx, main_split.editors, common.clone(), common.focus);
         let alert_data = AlertBoxData::new(cx, common.clone());
 
         let window_tab_data = Self {
@@ -567,6 +572,7 @@ impl WindowTabData {
                 scroll_to_line: cx.create_rw_signal(None),
             },
             about_data,
+            ssh_hosts_data,
             alert_data,
             layout_rect: cx.create_rw_signal(Rect::ZERO),
             title_height,
@@ -762,6 +768,20 @@ impl WindowTabData {
                                 .send(WindowCommand::SetWorkspace { workspace });
                         }
                     });
+                }
+            }
+            OpenWorkspace => {
+                self.palette.run(PaletteKind::Workspace);
+            }
+            NewProject => {
+                self.new_project();
+            }
+            CloneRepository => match data {
+                Some(Value::String(url)) => {
+                    self.clone_repository(url);
+                }
+                _ => {
+                    self.palette.run(PaletteKind::CloneRepository);
                 }
             }
             CloseFolder => {
@@ -1087,7 +1107,10 @@ impl WindowTabData {
 
             // ==== Remote ====
             ConnectSshHost => {
-                self.palette.run(PaletteKind::SshHost);
+                self.ssh_hosts_data.open();
+            }
+            ManageSshHosts => {
+                self.ssh_hosts_data.open();
             }
             #[cfg(windows)]
             ConnectWslHost => {
@@ -1645,6 +1668,11 @@ impl WindowTabData {
             }
             InternalCommand::ReloadFileExplorer => {
                 self.file_explorer.reload();
+            }
+            InternalCommand::AddPathToAiChat { path } => {
+                self.ai.add_attachment(path);
+                self.show_panel(PanelKind::Ai);
+                self.ai.status.set("Attached to AI chat".into());
             }
             InternalCommand::TestPathCreation { new_path } => {
                 let naming = self.file_explorer.naming;
@@ -2327,6 +2355,18 @@ impl WindowTabData {
             CoreNotification::WorkspaceFileChange => {
                 self.file_explorer.reload();
             }
+            // After remote proxy connects, open the remote user's home in the
+            // File Explorer if the workspace was started without a folder.
+            CoreNotification::HomeDir { path } => {
+                if self.workspace.kind.is_remote() && self.workspace.path.is_none() {
+                    let mut workspace = (*self.workspace).clone();
+                    workspace.path = Some(path.clone());
+                    self.common
+                        .window_common
+                        .window_command
+                        .send(WindowCommand::SetWorkspace { workspace });
+                }
+            }
             _ => {}
         }
     }
@@ -2346,6 +2386,9 @@ impl WindowTabData {
             }
             Focus::Rename => Some(keypress.key_down(event, &self.rename)),
             Focus::AboutPopup => Some(keypress.key_down(event, &self.about_data)),
+            Focus::SshHostsPopup => {
+                Some(keypress.key_down(event, &self.ssh_hosts_data))
+            }
             Focus::Panel(PanelKind::Terminal) => {
                 self.terminal.key_down(event, &keypress)
             }
@@ -2358,9 +2401,7 @@ impl WindowTabData {
             Focus::Panel(PanelKind::SourceControl) => {
                 Some(keypress.key_down(event, &self.source_control))
             }
-            Focus::Panel(PanelKind::Ai) => {
-                Some(keypress.key_down(event, &self.ai))
-            }
+            Focus::Panel(PanelKind::Ai) => Some(keypress.key_down(event, &self.ai)),
             _ => None,
         };
 
@@ -2863,6 +2904,146 @@ impl WindowTabData {
         self.alert_data.active.set(true);
     }
 
+    /// Create/select a folder for a new local project and open it as the workspace.
+    pub fn new_project(&self) {
+        if self.workspace.kind.is_remote() {
+            return;
+        }
+        let window_command = self.common.window_common.window_command;
+        let options = FileDialogOptions::new()
+            .title("New Project — select or create an empty folder")
+            .select_directories();
+        open_file(options, move |file| {
+            let Some(mut file) = file else {
+                return;
+            };
+            let Some(path) = file.path.pop() else {
+                tracing::error!("No path for new project");
+                return;
+            };
+
+            if let Err(err) = std::fs::create_dir_all(&path) {
+                tracing::error!("Failed to create project folder: {err}");
+                return;
+            }
+
+            let readme = path.join("README.md");
+            if !readme.exists() {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("project");
+                let _ = std::fs::write(
+                    &readme,
+                    format!("# {name}\n\nCreated with DevForge.\n"),
+                );
+            }
+
+            let git_dir = path.join(".git");
+            if !git_dir.exists() {
+                let _ = std::process::Command::new("git")
+                    .arg("init")
+                    .current_dir(&path)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+
+            let workspace = LapceWorkspace {
+                kind: LapceWorkspaceType::Local,
+                path: Some(path),
+                last_open: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            };
+            window_command.send(WindowCommand::SetWorkspace { workspace });
+        });
+    }
+
+    /// Clone a git repository into a chosen parent folder, then open the clone.
+    pub fn clone_repository(&self, url: String) {
+        if self.workspace.kind.is_remote() {
+            return;
+        }
+        let url = url.trim().to_string();
+        if url.is_empty() {
+            return;
+        }
+
+        let window_command = self.common.window_common.window_command;
+        let scope = self.scope;
+        let options = FileDialogOptions::new()
+            .title("Clone Repository — choose parent folder")
+            .select_directories();
+        open_file(options, move |file| {
+            let Some(mut file) = file else {
+                return;
+            };
+            let Some(parent) = file.path.pop() else {
+                tracing::error!("No path for clone destination");
+                return;
+            };
+
+            let repo_name = repo_name_from_url(&url);
+            let dest = parent.join(&repo_name);
+            if dest.exists() {
+                tracing::error!(
+                    "Clone destination already exists: {}",
+                    dest.display()
+                );
+                return;
+            }
+
+            let send =
+                create_ext_action(scope, move |result: Result<PathBuf, String>| {
+                    match result {
+                        Ok(path) => {
+                            let workspace = LapceWorkspace {
+                                kind: LapceWorkspaceType::Local,
+                                path: Some(path),
+                                last_open: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                            };
+                            window_command
+                                .send(WindowCommand::SetWorkspace { workspace });
+                        }
+                        Err(err) => {
+                            tracing::error!("git clone failed: {err}");
+                        }
+                    }
+                });
+
+            let url_for_clone = url.clone();
+            let dest_for_thread = dest.clone();
+            std::thread::Builder::new()
+                .name("CloneRepository".to_owned())
+                .spawn(move || {
+                    let output = std::process::Command::new("git")
+                        .arg("clone")
+                        .arg(&url_for_clone)
+                        .arg(&dest_for_thread)
+                        .output();
+                    match output {
+                        Ok(out) if out.status.success() => {
+                            send(Ok(dest_for_thread));
+                        }
+                        Ok(out) => {
+                            let err =
+                                String::from_utf8_lossy(&out.stderr).to_string();
+                            send(Err(err));
+                        }
+                        Err(err) => {
+                            send(Err(err.to_string()));
+                        }
+                    }
+                })
+                .ok();
+        });
+    }
+
     fn update_progress(&self, progress: &ProgressParams) {
         let token = progress.token.clone();
         match &progress.value {
@@ -2999,4 +3180,14 @@ fn open_uri(path: &Path) {
             error!("failed to open active file: {path:?}, error: {e}");
         }
     }
+}
+
+fn repo_name_from_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/').trim_end_matches(".git");
+    trimmed
+        .rsplit(['/', ':'])
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("repository")
+        .to_string()
 }

@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, atomic::AtomicU64},
 };
 
+use devforge_core::mode::{Mode, VisualMode};
 use floem::{
     View,
     event::EventPropagation,
@@ -13,7 +14,6 @@ use floem::{
     views::{Decorators, dyn_stack, label, stack, svg},
 };
 use indexmap::IndexMap;
-use devforge_core::mode::{Mode, VisualMode};
 use lsp_types::{DiagnosticSeverity, ProgressToken};
 
 use crate::{

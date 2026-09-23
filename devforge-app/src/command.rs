@@ -1,11 +1,5 @@
 use std::{path::PathBuf, rc::Rc};
 
-pub use floem::views::editor::command::CommandExecuted;
-use floem::{
-    ViewId, keyboard::Modifiers, peniko::kurbo::Vec2,
-    views::editor::command::Command,
-};
-use indexmap::IndexMap;
 use devforge_core::command::{
     EditCommand, FocusCommand, MotionModeCommand, MoveCommand,
     MultiSelectionCommand, ScrollCommand,
@@ -16,6 +10,12 @@ use devforge_rpc::{
     proxy::ProxyStatus,
     terminal::{TermId, TerminalProfile},
 };
+pub use floem::views::editor::command::CommandExecuted;
+use floem::{
+    ViewId, keyboard::Modifiers, peniko::kurbo::Vec2,
+    views::editor::command::Command,
+};
+use indexmap::IndexMap;
 use lsp_types::{CodeActionOrCommand, Position, WorkspaceEdit};
 use serde_json::Value;
 use strum::{EnumMessage, IntoEnumIterator};
@@ -174,6 +174,18 @@ pub enum LapceWorkbenchCommand {
     #[strum(serialize = "open_folder")]
     #[strum(message = "Open Folder")]
     OpenFolder,
+
+    #[strum(serialize = "open_workspace")]
+    #[strum(message = "Open Recent Workspace")]
+    OpenWorkspace,
+
+    #[strum(serialize = "new_project")]
+    #[strum(message = "New Project")]
+    NewProject,
+
+    #[strum(serialize = "clone_repository")]
+    #[strum(message = "Clone Repository")]
+    CloneRepository,
 
     #[strum(serialize = "close_folder")]
     #[strum(message = "Close Folder")]
@@ -352,6 +364,10 @@ pub enum LapceWorkbenchCommand {
     #[strum(serialize = "connect_ssh_host")]
     #[strum(message = "Connect to SSH Host")]
     ConnectSshHost,
+
+    #[strum(serialize = "manage_ssh_hosts")]
+    #[strum(message = "Remote SSH: Manage Hosts")]
+    ManageSshHosts,
 
     #[cfg(windows)]
     #[strum(serialize = "connect_wsl_host")]
@@ -627,6 +643,10 @@ pub enum InternalCommand {
         path: PathBuf,
     },
     ReloadFileExplorer,
+    /// Attach a workspace path (file or directory) to the AI chat composer.
+    AddPathToAiChat {
+        path: PathBuf,
+    },
     /// Test whether a file/directory can be created at that path
     TestPathCreation {
         new_path: PathBuf,

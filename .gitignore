@@ -12,3 +12,8 @@ vendor/
 *.patch
 *.tar
 *.gz
+
+# Local secrets / environment overrides
+.env
+.env.*
+!.env.example

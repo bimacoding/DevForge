@@ -1,7 +1,7 @@
+use devforge_core::{language::LapceLanguage, syntax::Syntax};
 use floem::text::{
     Attrs, AttrsList, FamilyOwned, LineHeightValue, Style, TextLayout, Weight,
 };
-use devforge_core::{language::LapceLanguage, syntax::Syntax};
 use lapce_xi_rope::Rope;
 use lsp_types::MarkedString;
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag};

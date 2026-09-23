@@ -1,5 +1,7 @@
 use std::{ops::Range, path::PathBuf, rc::Rc};
 
+use devforge_core::{mode::Mode, selection::Selection};
+use devforge_rpc::proxy::{ProxyResponse, SearchMatch};
 use floem::{
     ext_event::create_ext_action,
     keyboard::Modifiers,
@@ -7,8 +9,6 @@ use floem::{
     views::VirtualVector,
 };
 use indexmap::IndexMap;
-use devforge_core::{mode::Mode, selection::Selection};
-use devforge_rpc::proxy::{ProxyResponse, SearchMatch};
 use lapce_xi_rope::Rope;
 
 use crate::{

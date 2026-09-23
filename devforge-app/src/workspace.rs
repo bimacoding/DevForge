@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
+use devforge_core::directory::Directory;
 use serde::{Deserialize, Serialize};
 
 use crate::{debug::LapceBreakpoint, main_split::SplitInfo, panel::data::PanelInfo};
@@ -7,8 +8,20 @@ use crate::{debug::LapceBreakpoint, main_split::SplitInfo, panel::data::PanelInf
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct SshHost {
     pub user: Option<String>,
+    /// Connection target (HostName). Falls back to alias when HostName is omitted.
     pub host: String,
     pub port: Option<usize>,
+    /// SSH config `Host` alias shown in the UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identities_only: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_alive_interval: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_alive_count_max: Option<u64>,
 }
 
 impl SshHost {
@@ -23,7 +36,16 @@ impl SshHost {
         let host = splits.next().unwrap().to_string();
         let user = splits.next().map(|s| s.to_string());
         let port = whole_splits.next().and_then(|s| s.parse::<usize>().ok());
-        Self { user, host, port }
+        Self {
+            user,
+            host,
+            port,
+            alias: None,
+            identity_file: None,
+            identities_only: None,
+            server_alive_interval: None,
+            server_alive_count_max: None,
+        }
     }
 
     pub fn user_host(&self) -> String {
@@ -33,10 +55,47 @@ impl SshHost {
             self.host.clone()
         }
     }
+
+    pub fn display_name(&self) -> String {
+        self.alias.clone().unwrap_or_else(|| self.to_string())
+    }
+
+    /// Target passed to the `ssh` CLI.
+    /// Prefer the Host alias so OpenSSH applies `~/.ssh/config` fully.
+    pub fn ssh_cli_target(&self) -> String {
+        self.alias.clone().unwrap_or_else(|| self.user_host())
+    }
+
+    /// Expand `~` in IdentityFile for passing to OpenSSH.
+    pub fn expanded_identity_file(&self) -> Option<PathBuf> {
+        let path = self.identity_file.as_ref()?;
+        let path = if let Some(rest) = path.strip_prefix("~/") {
+            Directory::home_dir()?.join(rest)
+        } else if path == "~" {
+            Directory::home_dir()?
+        } else {
+            PathBuf::from(path)
+        };
+        Some(path)
+    }
 }
 
 impl Display for SshHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(alias) = self.alias.as_ref() {
+            if self.alias.as_deref() != Some(self.host.as_str()) {
+                write!(f, "{alias} (")?;
+                if let Some(user) = self.user.as_ref() {
+                    write!(f, "{user}@")?;
+                }
+                write!(f, "{}", self.host)?;
+                if let Some(port) = self.port {
+                    write!(f, ":{port}")?;
+                }
+                write!(f, ")")?;
+                return Ok(());
+            }
+        }
         if let Some(user) = self.user.as_ref() {
             write!(f, "{user}@")?;
         }

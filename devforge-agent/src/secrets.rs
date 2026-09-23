@@ -84,11 +84,11 @@ pub fn resolve_under_root(root: &Path, relative: &str) -> anyhow::Result<PathBuf
         .canonicalize()
         .map_err(|e| anyhow::anyhow!("cannot resolve workspace root: {e}"))?;
 
-    // Prefer real path when the target exists; otherwise keep logical join under root.
+    // Prefer real path when the target exists; otherwise join under the
+    // canonical root so symlink prefixes (e.g. /var → /private/var) match.
     let candidate = match joined.canonicalize() {
         Ok(path) => path,
         Err(_) => {
-            // Ensure parent chain stays under root when possible.
             if let Some(parent) = joined.parent() {
                 if parent.exists() {
                     let parent_canon = parent.canonicalize().map_err(|e| {
@@ -104,7 +104,9 @@ pub fn resolve_under_root(root: &Path, relative: &str) -> anyhow::Result<PathBuf
                     ));
                 }
             }
-            joined
+            let mut out = canonical_root.clone();
+            out.push(&normalized);
+            out
         }
     };
 
@@ -143,5 +145,11 @@ mod tests {
         assert!(resolve_under_root(root, "/etc/passwd").is_err());
         let ok = resolve_under_root(root, "src/main.rs").unwrap();
         assert!(ok.starts_with(root.canonicalize().unwrap()));
+        let nested = resolve_under_root(root, "new/dir/file.rs").unwrap();
+        assert!(nested.starts_with(root.canonicalize().unwrap()));
+        assert!(
+            nested.ends_with("new/dir/file.rs")
+                || nested.ends_with("new\\dir\\file.rs")
+        );
     }
 }

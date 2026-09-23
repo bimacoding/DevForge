@@ -6,9 +6,9 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use crossbeam_channel::{Sender, unbounded};
-use floem::{peniko::kurbo::Vec2, reactive::SignalGet};
 use devforge_core::directory::Directory;
 use devforge_rpc::plugin::VoltID;
+use floem::{peniko::kurbo::Vec2, reactive::SignalGet};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -17,7 +17,7 @@ use crate::{
     panel::{data::PanelOrder, kind::PanelKind},
     window::{WindowData, WindowInfo},
     window_tab::WindowTabData,
-    workspace::{LapceWorkspace, WorkspaceInfo},
+    workspace::{LapceWorkspace, SshHost, WorkspaceInfo},
 };
 
 const APP: &str = "app";
@@ -27,6 +27,7 @@ const WORKSPACE_FILES: &str = "workspace_files";
 const PANEL_ORDERS: &str = "panel_orders";
 const DISABLED_VOLTS: &str = "disabled_volts";
 const RECENT_WORKSPACES: &str = "recent_workspaces";
+const SSH_HOSTS: &str = "ssh_hosts.json";
 
 pub enum SaveEvent {
     App(AppInfo),
@@ -180,6 +181,57 @@ impl LapceDb {
             std::fs::read_to_string(self.folder.join(RECENT_WORKSPACES))?;
         let workspaces: Vec<LapceWorkspace> = serde_json::from_str(&workspaces)?;
         Ok(workspaces)
+    }
+
+    pub fn ssh_hosts(&self) -> Result<Vec<SshHost>> {
+        let path = self.folder.join(SSH_HOSTS);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = std::fs::read_to_string(path)?;
+        let hosts: Vec<SshHost> = serde_json::from_str(&raw)?;
+        Ok(hosts)
+    }
+
+    pub fn save_ssh_hosts(&self, hosts: &[SshHost]) -> Result<()> {
+        let path = self.folder.join(SSH_HOSTS);
+        let raw = serde_json::to_string_pretty(hosts)?;
+        std::fs::write(path, raw)?;
+        Ok(())
+    }
+
+    pub fn upsert_ssh_hosts(&self, new_hosts: Vec<SshHost>) -> Result<Vec<SshHost>> {
+        let mut hosts = self.ssh_hosts().unwrap_or_default();
+        for host in new_hosts {
+            if let Some(existing) = hosts.iter_mut().find(|h| {
+                h.alias == host.alias
+                    && h.host == host.host
+                    && h.user == host.user
+                    && h.port == host.port
+            }) {
+                *existing = host;
+            } else if let Some(alias) = host.alias.clone() {
+                if let Some(existing) = hosts
+                    .iter_mut()
+                    .find(|h| h.alias.as_deref() == Some(&alias))
+                {
+                    *existing = host;
+                } else {
+                    hosts.push(host);
+                }
+            } else {
+                hosts.push(host);
+            }
+        }
+        self.save_ssh_hosts(&hosts)?;
+        Ok(hosts)
+    }
+
+    pub fn remove_ssh_host(&self, host: &SshHost) -> Result<Vec<SshHost>> {
+        let mut hosts = self.ssh_hosts().unwrap_or_default();
+        hosts.retain(|h| h != host);
+        self.save_ssh_hosts(&hosts)?;
+        Ok(hosts)
     }
 
     pub fn update_recent_workspace(&self, workspace: &LapceWorkspace) -> Result<()> {

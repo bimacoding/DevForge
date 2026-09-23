@@ -1,5 +1,7 @@
 use std::{path::PathBuf, rc::Rc};
 
+use devforge_core::buffer::rope_text::RopeText;
+use devforge_rpc::source_control::FileDiff;
 use floem::{
     View,
     action::show_context_menu,
@@ -15,8 +17,6 @@ use floem::{
         label, scroll, stack, svg, text,
     },
 };
-use devforge_core::buffer::rope_text::RopeText;
-use devforge_rpc::source_control::FileDiff;
 
 use super::{
     data::PanelSection, kind::PanelKind, position::PanelPosition,

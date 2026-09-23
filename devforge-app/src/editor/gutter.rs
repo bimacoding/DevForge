@@ -1,3 +1,4 @@
+use devforge_core::{buffer::rope_text::RopeText, mode::Mode};
 use floem::{
     Renderer, View, ViewId,
     context::PaintCx,
@@ -6,7 +7,6 @@ use floem::{
     text::{Attrs, AttrsList, FamilyOwned, TextLayout},
 };
 use im::HashMap;
-use devforge_core::{buffer::rope_text::RopeText, mode::Mode};
 use serde::{Deserialize, Serialize};
 
 use super::{EditorData, view::changes_colors_screen};

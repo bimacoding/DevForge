@@ -1,12 +1,12 @@
 use std::cmp::{max, min};
 
-use floem::{
-    prelude::SignalTrack,
-    reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
-};
 use devforge_core::{
     selection::{SelRegion, Selection},
     word::WordCursor,
+};
+use floem::{
+    prelude::SignalTrack,
+    reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
 };
 use lapce_xi_rope::{
     Cursor, Interval, Rope,

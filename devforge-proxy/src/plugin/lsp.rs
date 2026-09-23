@@ -9,13 +9,13 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use jsonrpc_lite::{Id, Params};
 use devforge_core::meta;
 use devforge_rpc::{
     RpcError,
     plugin::{PluginId, VoltID},
     style::LineStyle,
 };
+use jsonrpc_lite::{Id, Params};
 use lapce_xi_rope::Rope;
 use lsp_types::{
     notification::{Initialized, Notification},

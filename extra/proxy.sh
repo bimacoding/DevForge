@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eux
+set -eu
 
 # This script is written to be as POSIX as possible
 # so it works fine for all Unix-like operating systems
@@ -71,30 +71,56 @@ case $(uname -m) in
   ;;
 esac
 
-lapce_download_url="https://github.com/bimacoding/DevForge/releases/download/${lapce_new_ver_tag}/devforge-proxy-${os_name}-${arch_name}.gz"
+devforge_url="https://github.com/bimacoding/DevForge/releases/download/${lapce_new_ver_tag}/devforge-proxy-${os_name}-${arch_name}.gz"
+lapce_url="https://github.com/lapce/lapce/releases/download/nightly/lapce-proxy-${os_name}-${arch_name}.gz"
+artifact="devforge-proxy-${os_name}-${arch_name}.gz"
 
 printf 'Creating "%s"\n' "${lapce_dir}"
 mkdir -p "${lapce_dir}"
 cd "${lapce_dir}"
 
-if test_cmd 'curl'; then
-  # How old curl has these options? we'll find out
-  printf 'Downloading using curl\n'
-  curl --proto '=https' --tlsv1.2 -LfS -O "${lapce_download_url}"
-  # curl --proto '=https' --tlsv1.2 -LZfS -o "${tmp_dir}/devforge-proxy-${os_name}-${arch_name}.gz" "${lapce_download_url}"
-elif test_cmd 'wget'; then
-  printf 'Downloading using wget\n'
-  wget "${lapce_download_url}"
-else
-  printf 'curl/wget not found, failed to download proxy\n'
-  exit 1
+download_file() {
+  _url="$1"
+  _out="$2"
+  if test_cmd 'curl'; then
+    printf 'Downloading using curl: %s\n' "${_url}"
+    curl --proto '=https' --tlsv1.2 -LfS -o "${_out}" "${_url}"
+  elif test_cmd 'wget'; then
+    printf 'Downloading using wget: %s\n' "${_url}"
+    wget -O "${_out}" "${_url}"
+  else
+    printf 'curl/wget not found, failed to download proxy\n'
+    return 1
+  fi
+}
+
+if ! download_file "${devforge_url}" "${artifact}"; then
+  printf 'DevForge proxy download failed; trying Lapce nightly fallback\n'
+  if ! download_file "${lapce_url}" "${artifact}"; then
+    printf 'All proxy downloads failed\n'
+    exit 1
+  fi
 fi
 
 printf 'Decompressing gzip\n'
-gzip -df "${lapce_dir}/devforge-proxy-${os_name}-${arch_name}.gz"
+gzip -df "${lapce_dir}/${artifact}"
 
 printf 'Renaming proxy \n'
-mv -v "${lapce_dir}/devforge-proxy-${os_name}-${arch_name}" "${lapce_dir}/devforge"
+# gzip -d leaves either the DevForge or Lapce uncompressed name
+if [ -e "${lapce_dir}/devforge-proxy-${os_name}-${arch_name}" ]; then
+  mv -v "${lapce_dir}/devforge-proxy-${os_name}-${arch_name}" "${lapce_dir}/devforge"
+elif [ -e "${lapce_dir}/lapce-proxy-${os_name}-${arch_name}" ]; then
+  mv -v "${lapce_dir}/lapce-proxy-${os_name}-${arch_name}" "${lapce_dir}/devforge"
+else
+  # We forced -o to artifact name; gzip strips .gz → same stem
+  stem=$(echo "${artifact}" | sed 's/\.gz$//')
+  if [ -e "${lapce_dir}/${stem}" ]; then
+    mv -v "${lapce_dir}/${stem}" "${lapce_dir}/devforge"
+  else
+    printf 'Downloaded proxy binary not found after decompress\n'
+    exit 1
+  fi
+fi
 
 printf 'Making it executable\n'
 chmod +x "${lapce_dir}/devforge"

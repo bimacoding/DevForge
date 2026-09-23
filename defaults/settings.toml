@@ -82,17 +82,29 @@ default = {}
 [ai]
 enabled = true
 default-mode = "ask"
-provider = "openai-compatible"
-model = "gpt-4.1"
+provider = "openrouter"
+model = "openai/gpt-4o-mini"
+extra-models = ""
 api-key = ""
-base-url = "https://api.openai.com/v1"
+base-url = "https://openrouter.ai/api/v1"
 temperature = 0.2
 max-tokens = 4096
 context-limit = 128000
-max-iterations = 5
+max-iterations = 8
 tool-call-limit = 40
 auto-run-safe-terminal = false
 require-plan-approval = true
+require-tool-approval = true
+mcp-enabled = false
+skills-enabled = true
+max-parallel-runs = 2
+
+# Example MCP server (stdio). Enable mcp-enabled and uncomment:
+# [[ai.mcp-servers]]
+# name = "filesystem"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+# enabled = true
 
 # [terminal.profiles.example]
 # command     = "cargo"

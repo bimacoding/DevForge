@@ -7,16 +7,6 @@ use std::{
     sync::Arc,
 };
 
-use floem::{
-    action::show_context_menu,
-    event::EventPropagation,
-    ext_event::create_ext_action,
-    keyboard::Modifiers,
-    menu::{Menu, MenuItem},
-    reactive::{ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
-    views::editor::text::SystemClipboard,
-};
-use globset::Glob;
 use devforge_core::{
     command::{EditCommand, FocusCommand},
     mode::Mode,
@@ -29,6 +19,16 @@ use devforge_rpc::{
     },
     proxy::ProxyResponse,
 };
+use floem::{
+    action::show_context_menu,
+    event::EventPropagation,
+    ext_event::create_ext_action,
+    keyboard::Modifiers,
+    menu::{Menu, MenuItem},
+    reactive::{ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
+    views::editor::text::SystemClipboard,
+};
+use globset::Glob;
 
 use crate::{
     command::{CommandExecuted, CommandKind, InternalCommand, LapceCommand},
@@ -151,6 +151,56 @@ impl FileExplorerData {
     pub fn reload(&self) {
         let path = self.root.with_untracked(|root| root.path.clone());
         self.read_dir(&path);
+    }
+
+    /// Directory used as the target for New File / New Directory.
+    /// Prefer the selected directory; if a file is selected use its parent;
+    /// otherwise use the workspace root.
+    pub fn selected_target_dir(&self) -> Option<PathBuf> {
+        let workspace = self.common.workspace.path.clone()?;
+        let selected = self.select.get_untracked();
+        match selected {
+            Some(FileNodeViewKind::Path(path)) => {
+                if self.is_dir(&path) {
+                    Some(path)
+                } else {
+                    Some(path.parent().unwrap_or(&workspace).to_path_buf())
+                }
+            }
+            _ => Some(workspace),
+        }
+    }
+
+    /// Start inline naming for a new file or directory under the selected folder.
+    pub fn start_new_node(&self, is_dir: bool) {
+        let Some(base_path) = self.selected_target_dir() else {
+            return;
+        };
+        let naming = self.naming;
+        let data = self.clone();
+        let base_path_cb = base_path.clone();
+        data.read_dir_cb(&base_path, move |was_read| {
+            if !was_read {
+                tracing::warn!(
+                    "Failed to read directory, avoiding creating node in: {:?}",
+                    base_path_cb
+                );
+                return;
+            }
+            naming.set(Naming::NewNode(NewNode {
+                state: NamingState::Naming,
+                base_path: base_path_cb.clone(),
+                is_dir,
+                editor_needs_reset: true,
+            }));
+        });
+    }
+
+    /// Collapse all expanded folders in the explorer (root stays open).
+    pub fn collapse_all(&self) {
+        self.root.update(|root| {
+            collapse_file_node(root, true);
+        });
     }
 
     /// Toggle whether the directory is expanded or not.  
@@ -502,6 +552,21 @@ impl FileExplorerData {
 
         let mut menu = Menu::new("");
 
+        let path_for_ai = path_a.clone();
+        let internal_command = common.internal_command;
+        let add_label = if is_dir {
+            "Add Directory to Chat Agent"
+        } else {
+            "Add File to Chat Agent"
+        };
+        menu = menu.entry(MenuItem::new(add_label).action(move || {
+            internal_command.send(InternalCommand::AddPathToAiChat {
+                path: path_for_ai.clone(),
+            });
+        }));
+
+        menu = menu.separator();
+
         let base_path = base_path_a.clone();
         let data = self.clone();
         let naming = self.naming;
@@ -678,4 +743,24 @@ impl FileExplorerData {
             EventPropagation::Stop
         }
     }
+}
+
+fn collapse_file_node(node: &mut FileNodeItem, is_root: bool) {
+    if !node.is_dir {
+        return;
+    }
+    for child in node.children.values_mut() {
+        collapse_file_node(child, false);
+    }
+    if !is_root {
+        node.open = false;
+    }
+    node.children_open_count = if node.open {
+        node.children
+            .values()
+            .map(|item| item.children_open_count + 1)
+            .sum::<usize>()
+    } else {
+        0
+    };
 }

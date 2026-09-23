@@ -1,13 +1,13 @@
 use std::{path::PathBuf, rc::Rc};
 
+use devforge_core::{command::FocusCommand, mode::Mode, selection::Selection};
+use devforge_rpc::proxy::ProxyResponse;
 use floem::{
     ext_event::create_ext_action,
     keyboard::Modifiers,
     peniko::kurbo::Rect,
     reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
 };
-use devforge_core::{command::FocusCommand, mode::Mode, selection::Selection};
-use devforge_rpc::proxy::ProxyResponse;
 use lapce_xi_rope::Rope;
 use lsp_types::Position;
 

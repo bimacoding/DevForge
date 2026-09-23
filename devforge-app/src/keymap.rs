@@ -1,5 +1,6 @@
 use std::{rc::Rc, sync::Arc};
 
+use devforge_core::mode::Modes;
 use floem::{
     View,
     event::{Event, EventListener},
@@ -12,7 +13,6 @@ use floem::{
         Decorators, container, dyn_stack, label, scroll, stack, text, virtual_stack,
     },
 };
-use devforge_core::mode::Modes;
 
 use crate::{
     command::LapceCommand,

@@ -1,32 +1,38 @@
 use serde::{Deserialize, Serialize};
 use structdesc::FieldNames;
 
+use crate::ai_providers::{McpServerConfig, resolve_api_key, resolve_base_url};
+
 #[derive(FieldNames, Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct AiConfig {
-    #[field_names(desc = "Enable the built-in AI Assistant panel and commands")]
+    #[field_names(desc = "Show the AI Assistant panel and related commands")]
     pub enabled: bool,
 
-    #[field_names(
-        desc = "Default agent mode: ask (read-only), edit (not yet), or agent (not yet)"
-    )]
+    #[field_names(desc = "Default chat mode: ask, edit, or agent")]
     pub default_mode: String,
 
     #[field_names(
-        desc = "Provider kind: openai-compatible, anthropic (planned), or ollama"
+        desc = "AI provider: openai, openrouter, anthropic, gemini, grok, hermes, ollama, openai-compatible"
     )]
     pub provider: String,
 
-    #[field_names(desc = "Model name sent to the provider")]
+    #[field_names(desc = "Default model when Auto is selected")]
     pub model: String,
 
     #[field_names(
-        desc = "API key (prefer env DEVFORGE_AI_API_KEY / OPENAI_API_KEY instead of storing here)"
+        desc = "Extra models for the picker (comma-separated IDs you can add anytime)"
+    )]
+    #[serde(default)]
+    pub extra_models: String,
+
+    #[field_names(
+        desc = "API key — prefer env vars (OPENAI_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, XAI_API_KEY, …)"
     )]
     pub api_key: String,
 
     #[field_names(
-        desc = "Provider base URL (OpenAI-compatible or Ollama, e.g. http://127.0.0.1:11434)"
+        desc = "Provider base URL (auto-filled per provider; override for custom gateways)"
     )]
     pub base_url: String,
 
@@ -50,8 +56,44 @@ pub struct AiConfig {
     )]
     pub auto_run_safe_terminal: bool,
 
-    #[field_names(desc = "Require explicit approval of the agent plan before editing")]
+    #[field_names(
+        desc = "Require explicit approval of the agent plan before editing"
+    )]
     pub require_plan_approval: bool,
+
+    #[field_names(
+        desc = "Ask for Run / Skip before each tool call (MCP and workspace tools)"
+    )]
+    #[serde(default = "default_true")]
+    pub require_tool_approval: bool,
+
+    #[field_names(desc = "Enable MCP servers listed below")]
+    #[serde(default)]
+    pub mcp_enabled: bool,
+
+    #[field_names(skip)]
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+
+    #[field_names(
+        desc = "Load Agent Skills from ~/.devforge/skills and .devforge/skills into the system prompt"
+    )]
+    #[serde(default = "default_true")]
+    pub skills_enabled: bool,
+
+    #[field_names(
+        desc = "Max concurrent AI runs across chats (1–8). Extra prompts on a busy chat still queue."
+    )]
+    #[serde(default = "default_max_parallel")]
+    pub max_parallel_runs: usize,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_parallel() -> usize {
+    2
 }
 
 impl Default for AiConfig {
@@ -59,29 +101,33 @@ impl Default for AiConfig {
         Self {
             enabled: true,
             default_mode: "ask".into(),
-            provider: "openai-compatible".into(),
-            model: "gpt-4.1".into(),
+            provider: "openrouter".into(),
+            model: "openai/gpt-4o-mini".into(),
+            extra_models: String::new(),
             api_key: String::new(),
-            base_url: "https://api.openai.com/v1".into(),
+            base_url: "https://openrouter.ai/api/v1".into(),
             temperature: 0.2,
             max_tokens: 4096,
             context_limit: 128_000,
-            max_iterations: 5,
+            max_iterations: 8,
             tool_call_limit: 40,
             auto_run_safe_terminal: false,
             require_plan_approval: true,
+            require_tool_approval: true,
+            mcp_enabled: false,
+            mcp_servers: Vec::new(),
+            skills_enabled: true,
+            max_parallel_runs: 2,
         }
     }
 }
 
 impl AiConfig {
     pub fn provider_base_url(&self) -> String {
-        if self.provider.eq_ignore_ascii_case("ollama")
-            && (self.base_url.is_empty()
-                || self.base_url.contains("openai.com"))
-        {
-            return "http://127.0.0.1:11434/v1".into();
-        }
-        self.base_url.clone()
+        resolve_base_url(&self.provider, &self.base_url)
+    }
+
+    pub fn resolved_api_key(&self) -> String {
+        resolve_api_key(&self.provider, &self.api_key)
     }
 }

@@ -1,5 +1,7 @@
 use std::{rc::Rc, sync::Arc};
 
+use devforge_core::meta;
+use devforge_rpc::proxy::ProxyStatus;
 use floem::{
     View,
     event::EventListener,
@@ -11,8 +13,6 @@ use floem::{
     style::{AlignItems, CursorStyle, JustifyContent},
     views::{Decorators, container, drag_window_area, empty, label, stack, svg},
 };
-use devforge_core::meta;
-use devforge_rpc::proxy::ProxyStatus;
 
 use crate::{
     app::{clickable_icon, not_clickable_icon, tooltip_label, window_menu},
@@ -209,11 +209,24 @@ fn middle(
         )
         .popout_menu(move || {
             Menu::new("")
-                .entry(MenuItem::new("Open Folder").action(move || {
+                .entry(MenuItem::new("Open Folder…").action(move || {
                     workbench_command.send(LapceWorkbenchCommand::OpenFolder);
                 }))
-                .entry(MenuItem::new("Open Recent Workspace").action(move || {
-                    workbench_command.send(LapceWorkbenchCommand::PaletteWorkspace);
+                .entry(MenuItem::new("Open Recent Workspace…").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::OpenWorkspace);
+                }))
+                .entry(MenuItem::new("New Project…").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::NewProject);
+                }))
+                .entry(MenuItem::new("Clone Repository…").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::CloneRepository);
+                }))
+                .separator()
+                .entry(MenuItem::new("New File").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::NewFile);
+                }))
+                .entry(MenuItem::new("New Window").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::NewWindow);
                 }))
         })
     };
@@ -305,6 +318,7 @@ fn middle(
 }
 
 fn right(
+    window_tab_data: Rc<WindowTabData>,
     window_command: Listener<WindowCommand>,
     workbench_command: Listener<LapceWorkbenchCommand>,
     latest_release: ReadSignal<Arc<Option<ReleaseInfo>>>,
@@ -327,10 +341,31 @@ fn right(
     });
 
     let has_update = move || latest_version.with(|v| v.is_some());
+    let panel = window_tab_data.panel.clone();
+    let panel_styles = panel.styles;
+    let ai_visible = move || {
+        // Track style changes so the active highlight updates.
+        let _ = panel_styles.get();
+        panel.is_panel_visible(&crate::panel::kind::PanelKind::Ai)
+    };
 
     stack((
         drag_window_area(empty())
             .style(|s| s.height_pct(100.0).flex_basis(0.0).flex_grow(1.0)),
+        clickable_icon(
+            || LapceIcons::AI,
+            move || {
+                workbench_command.send(LapceWorkbenchCommand::ToggleAiVisual);
+            },
+            move || ai_visible(),
+            || false,
+            || "Toggle AI Agent",
+            config,
+        )
+        .style(move |s| {
+            s.margin_right(4.0)
+                .apply_if(!config.get().ai.enabled, |s| s.hide())
+        }),
         stack((
             not_clickable_icon(
                 || LapceIcons::SETTINGS,
@@ -445,6 +480,7 @@ pub fn title(window_tab_data: Rc<WindowTabData>) -> impl View {
             config,
         ),
         right(
+            window_tab_data.clone(),
             window_command,
             workbench_command,
             latest_release,

@@ -6,6 +6,8 @@ use alacritty_terminal::{
     selection::{Selection, SelectionType},
     term::{RenderableContent, cell::Flags, test::TermSize},
 };
+use devforge_core::mode::Mode;
+use devforge_rpc::{proxy::ProxyRpcHandler, terminal::TermId};
 use floem::{
     Renderer, View, ViewId,
     context::{EventCx, PaintCx},
@@ -21,8 +23,6 @@ use floem::{
     text::{Attrs, AttrsList, FamilyOwned, TextLayout, Weight},
     views::editor::{core::register::Clipboard, text::SystemClipboard},
 };
-use devforge_core::mode::Mode;
-use devforge_rpc::{proxy::ProxyRpcHandler, terminal::TermId};
 use lsp_types::Position;
 use parking_lot::RwLock;
 use regex::Regex;

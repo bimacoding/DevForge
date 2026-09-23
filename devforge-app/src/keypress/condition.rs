@@ -75,8 +75,8 @@ pub enum Condition {
 
 #[cfg(test)]
 mod test {
-    use floem::keyboard::Modifiers;
     use devforge_core::mode::Mode;
+    use floem::keyboard::Modifiers;
 
     use super::Condition;
     use crate::keypress::{KeyPressData, KeyPressFocus, condition::CheckCondition};

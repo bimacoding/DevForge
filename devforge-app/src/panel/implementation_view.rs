@@ -1,5 +1,6 @@
 use std::{ops::AddAssign, path::PathBuf, rc::Rc};
 
+use devforge_rpc::file_line::FileLine;
 use floem::{
     IntoView, View, ViewId,
     reactive::{RwSignal, Scope, SignalGet, SignalUpdate},
@@ -11,7 +12,6 @@ use floem::{
 };
 use im::HashMap;
 use itertools::Itertools;
-use devforge_rpc::file_line::FileLine;
 use lsp_types::{Location, SymbolKind, request::GotoImplementationResponse};
 
 use super::position::PanelPosition;

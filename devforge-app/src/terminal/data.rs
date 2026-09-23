@@ -8,11 +8,6 @@ use alacritty_terminal::{
     vi_mode::ViMotion,
 };
 use anyhow::anyhow;
-use floem::{
-    keyboard::{Key, KeyEvent, Modifiers, NamedKey},
-    reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
-    views::editor::text::SystemClipboard,
-};
 use devforge_core::{
     command::{EditCommand, FocusCommand, ScrollCommand},
     mode::{Mode, VisualMode},
@@ -22,6 +17,11 @@ use devforge_core::{
 use devforge_rpc::{
     dap_types::RunDebugConfig,
     terminal::{TermId, TerminalProfile},
+};
+use floem::{
+    keyboard::{Key, KeyEvent, Modifiers, NamedKey},
+    reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
+    views::editor::text::SystemClipboard,
 };
 use parking_lot::RwLock;
 use url::Url;

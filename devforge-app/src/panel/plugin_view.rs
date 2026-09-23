@@ -1,5 +1,9 @@
 use std::{ops::Range, rc::Rc};
 
+use devforge_rpc::{
+    core::CoreRpcHandler,
+    plugin::{VoltID, VoltInfo},
+};
 use floem::{
     IntoView, View,
     event::EventListener,
@@ -14,10 +18,6 @@ use floem::{
     },
 };
 use indexmap::IndexMap;
-use devforge_rpc::{
-    core::CoreRpcHandler,
-    plugin::{VoltID, VoltInfo},
-};
 
 use super::{
     data::PanelSection, kind::PanelKind, position::PanelPosition, view::PanelBuilder,

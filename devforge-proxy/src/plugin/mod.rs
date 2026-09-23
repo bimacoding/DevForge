@@ -18,8 +18,6 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use crossbeam_channel::{Receiver, Sender};
-use dyn_clone::DynClone;
-use flate2::read::GzDecoder;
 use devforge_core::directory::Directory;
 use devforge_rpc::{
     RequestId, RpcError,
@@ -30,6 +28,8 @@ use devforge_rpc::{
     style::LineStyle,
     terminal::TermId,
 };
+use dyn_clone::DynClone;
+use flate2::read::GzDecoder;
 use lapce_xi_rope::{Rope, RopeDelta};
 use lsp_types::{
     CallHierarchyClientCapabilities, CallHierarchyIncomingCall,

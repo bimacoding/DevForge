@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use devforge_rpc::terminal::TermId;
 use floem::{
     View, ViewId,
     action::show_context_menu,
@@ -14,7 +15,6 @@ use floem::{
         stack, svg, tab,
     },
 };
-use devforge_rpc::terminal::TermId;
 
 use super::kind::PanelKind;
 use crate::{

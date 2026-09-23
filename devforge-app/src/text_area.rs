@@ -1,3 +1,4 @@
+use devforge_core::buffer::rope_text::RopeText;
 use floem::{
     View,
     peniko::kurbo::Rect,
@@ -7,7 +8,6 @@ use floem::{
     text::{Attrs, AttrsList, LineHeightValue, TextLayout},
     views::{Decorators, container, label, rich_text, scroll, stack},
 };
-use devforge_core::buffer::rope_text::RopeText;
 
 use crate::{config::color::LapceColor, editor::EditorData};
 

@@ -13,6 +13,7 @@ pub enum PaletteKind {
     DocumentSymbol,
     WorkspaceSymbol,
     SshHost,
+    CloneRepository,
     #[cfg(windows)]
     WslHost,
     RunAndDebug,
@@ -41,6 +42,7 @@ impl PaletteKind {
             PaletteKind::File
             | PaletteKind::Reference
             | PaletteKind::SshHost
+            | PaletteKind::CloneRepository
             | PaletteKind::RunAndDebug
             | PaletteKind::ColorTheme
             | PaletteKind::IconTheme
@@ -87,6 +89,9 @@ impl PaletteKind {
             }
             PaletteKind::Reference => None, // InternalCommand::PaletteReferences
             PaletteKind::SshHost => Some(LapceWorkbenchCommand::ConnectSshHost),
+            PaletteKind::CloneRepository => {
+                Some(LapceWorkbenchCommand::CloneRepository)
+            }
             #[cfg(windows)]
             PaletteKind::WslHost => Some(LapceWorkbenchCommand::ConnectWslHost),
             PaletteKind::RunAndDebug => {
@@ -124,6 +129,7 @@ impl PaletteKind {
             PaletteKind::File
             | PaletteKind::Reference
             | PaletteKind::SshHost
+            | PaletteKind::CloneRepository
             | PaletteKind::RunAndDebug
             | PaletteKind::ColorTheme
             | PaletteKind::IconTheme

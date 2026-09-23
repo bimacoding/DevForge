@@ -15,6 +15,17 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
+use devforge_core::{
+    command::{EditCommand, FocusCommand},
+    directory::Directory,
+    meta,
+    syntax::{Syntax, highlight::reset_highlight_configs},
+};
+use devforge_rpc::{
+    RpcMessage,
+    core::{CoreMessage, CoreNotification},
+    file::PathObject,
+};
 use floem::{
     IntoView, View,
     action::show_context_menu,
@@ -49,17 +60,6 @@ use floem::{
         stack, svg, tab, text, tooltip, virtual_stack,
     },
     window::{ResizeDirection, WindowConfig, WindowId},
-};
-use devforge_core::{
-    command::{EditCommand, FocusCommand},
-    directory::Directory,
-    meta,
-    syntax::{Syntax, highlight::reset_highlight_configs},
-};
-use devforge_rpc::{
-    RpcMessage,
-    core::{CoreMessage, CoreNotification},
-    file::PathObject,
 };
 use lsp_types::{CompletionItemKind, MessageType, ShowMessageParams};
 use notify::Watcher;
@@ -2184,12 +2184,31 @@ fn tooltip_tip<V: View + 'static>(
 fn workbench(window_tab_data: Rc<WindowTabData>) -> impl View {
     let workbench_size = window_tab_data.common.workbench_size;
     let main_split_width = window_tab_data.main_split.width;
+    let panel = window_tab_data.panel.clone();
     stack((
         panel_container_view(window_tab_data.clone(), PanelContainerPosition::Left),
         {
             let window_tab_data = window_tab_data.clone();
             stack((
-                main_split(window_tab_data.clone()),
+                stack((
+                    main_split(window_tab_data.clone()),
+                    crate::welcome::welcome_view(window_tab_data.clone()),
+                ))
+                .style(move |s| {
+                    // When bottom panel is maximized, collapse the editor/welcome
+                    // column so Terminal (etc.) can fill the workbench.
+                    let bottom_maximized = panel.panel_bottom_maximized(true)
+                        && panel.is_container_shown(
+                            &PanelContainerPosition::Bottom,
+                            true,
+                        );
+                    s.flex_col()
+                        .flex_grow(1.0)
+                        .flex_basis(0.0)
+                        .min_size(0.0, 0.0)
+                        .position(Position::Relative)
+                        .apply_if(bottom_maximized, |s| s.display(Display::None))
+                }),
                 panel_container_view(
                     window_tab_data,
                     PanelContainerPosition::Bottom,
@@ -3331,6 +3350,7 @@ fn window_tab(window_tab_data: Rc<WindowTabData>) -> impl View {
         rename(window_tab_data.clone()),
         palette(window_tab_data.clone()),
         about::about_popup(window_tab_data.clone()),
+        crate::ssh_hosts::ssh_hosts_popup(window_tab_data.clone()),
         alert::alert_box(window_tab_data.alert_data.clone()),
     ))
     .on_cleanup(move || {
@@ -4170,10 +4190,10 @@ pub fn window_menu(
     lapce_command: Listener<LapceCommand>,
     workbench_command: Listener<LapceWorkbenchCommand>,
 ) -> Menu {
-    Menu::new("Lapce")
+    Menu::new("DevForge")
         .entry({
-            let mut menu = Menu::new("Lapce")
-                .entry(MenuItem::new("About Lapce").action(move || {
+            let mut menu = Menu::new("DevForge")
+                .entry(MenuItem::new("About DevForge").action(move || {
                     workbench_command.send(LapceWorkbenchCommand::ShowAbout)
                 }))
                 .separator()
@@ -4192,13 +4212,13 @@ pub fn window_menu(
                         )),
                 )
                 .separator()
-                .entry(MenuItem::new("Quit Lapce").action(move || {
+                .entry(MenuItem::new("Quit DevForge").action(move || {
                     workbench_command.send(LapceWorkbenchCommand::Quit);
                 }));
             if cfg!(target_os = "macos") {
                 menu = menu
                     .separator()
-                    .entry(MenuItem::new("Hide Lapce"))
+                    .entry(MenuItem::new("Hide DevForge"))
                     .entry(MenuItem::new("Hide Others"))
                     .entry(MenuItem::new("Show All"))
             }
@@ -4210,12 +4230,24 @@ pub fn window_menu(
                 .entry(MenuItem::new("New File").action(move || {
                     workbench_command.send(LapceWorkbenchCommand::NewFile);
                 }))
+                .entry(MenuItem::new("New Project…").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::NewProject);
+                }))
+                .entry(MenuItem::new("New Window").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::NewWindow);
+                }))
                 .separator()
-                .entry(MenuItem::new("Open").action(move || {
+                .entry(MenuItem::new("Open…").action(move || {
                     workbench_command.send(LapceWorkbenchCommand::OpenFile);
                 }))
-                .entry(MenuItem::new("Open Folder").action(move || {
+                .entry(MenuItem::new("Open Folder…").action(move || {
                     workbench_command.send(LapceWorkbenchCommand::OpenFolder);
+                }))
+                .entry(MenuItem::new("Open Recent Workspace…").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::OpenWorkspace);
+                }))
+                .entry(MenuItem::new("Clone Repository…").action(move || {
+                    workbench_command.send(LapceWorkbenchCommand::CloneRepository);
                 }))
                 .separator()
                 .entry(MenuItem::new("Save").action(move || {

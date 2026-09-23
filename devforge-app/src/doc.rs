@@ -12,28 +12,6 @@ use std::{
     time::Duration,
 };
 
-use floem::{
-    ViewId,
-    action::exec_after,
-    ext_event::create_ext_action,
-    keyboard::Modifiers,
-    peniko::Color,
-    reactive::{
-        ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith, batch,
-    },
-    text::{Attrs, AttrsList, FamilyOwned, TextLayout},
-    views::editor::{
-        CursorInfo, Editor, EditorStyle,
-        actions::CommonAction,
-        command::{Command, CommandExecuted},
-        id::EditorId,
-        layout::{LineExtraStyle, TextLayoutLine},
-        phantom_text::{PhantomText, PhantomTextKind, PhantomTextLine},
-        text::{Document, DocumentPhantom, PreeditData, Styling, SystemClipboard},
-        view::{ScreenLines, ScreenLinesBase},
-    },
-};
-use itertools::Itertools;
 use devforge_core::{
     buffer::{
         Buffer, InvalLines,
@@ -61,6 +39,28 @@ use devforge_rpc::{
     proxy::ProxyResponse,
     style::{LineStyle, LineStyles, Style},
 };
+use floem::{
+    ViewId,
+    action::exec_after,
+    ext_event::create_ext_action,
+    keyboard::Modifiers,
+    peniko::Color,
+    reactive::{
+        ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith, batch,
+    },
+    text::{Attrs, AttrsList, FamilyOwned, TextLayout},
+    views::editor::{
+        CursorInfo, Editor, EditorStyle,
+        actions::CommonAction,
+        command::{Command, CommandExecuted},
+        id::EditorId,
+        layout::{LineExtraStyle, TextLayoutLine},
+        phantom_text::{PhantomText, PhantomTextKind, PhantomTextLine},
+        text::{Document, DocumentPhantom, PreeditData, Styling, SystemClipboard},
+        view::{ScreenLines, ScreenLinesBase},
+    },
+};
+use itertools::Itertools;
 use lapce_xi_rope::{
     Interval, Rope, RopeDelta, Transformer,
     spans::{Spans, SpansBuilder},

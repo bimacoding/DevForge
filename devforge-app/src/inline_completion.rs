@@ -1,6 +1,5 @@
 use std::{borrow::Cow, ops::Range, path::PathBuf, str::FromStr};
 
-use floem::reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith, batch};
 use devforge_core::{
     buffer::{
         Buffer,
@@ -9,6 +8,7 @@ use devforge_core::{
     rope_text_pos::RopeTextPosition,
     selection::Selection,
 };
+use floem::reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith, batch};
 use lsp_types::InsertTextFormat;
 
 use crate::{config::LapceConfig, doc::Doc, editor::EditorData, snippet::Snippet};

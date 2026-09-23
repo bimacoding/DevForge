@@ -1,5 +1,5 @@
-use floem::views::VirtualVector;
 use devforge_rpc::file::{FileNodeItem, FileNodeViewData, Naming};
+use floem::views::VirtualVector;
 
 pub struct FileNodeVirtualList {
     file_node_item: FileNodeItem,

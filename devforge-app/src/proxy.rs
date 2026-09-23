@@ -5,7 +5,6 @@ use std::{
     sync::{Arc, mpsc::Sender},
 };
 
-use floem::{ext_event::create_signal_from_channel, reactive::ReadSignal};
 use devforge_proxy::dispatch::Dispatcher;
 use devforge_rpc::{
     core::{CoreHandler, CoreNotification, CoreRpcHandler},
@@ -13,18 +12,42 @@ use devforge_rpc::{
     proxy::{ProxyRpcHandler, ProxyStatus},
     terminal::TermId,
 };
+use floem::{ext_event::create_signal_from_channel, reactive::ReadSignal};
+use lsp_types::{MessageType, ShowMessageParams};
 use tracing::error;
 
 use self::{remote::start_remote, ssh::SshRemote};
 use crate::{
     terminal::event::TermEvent,
-    workspace::{LapceWorkspace, LapceWorkspaceType},
+    workspace::{LapceWorkspace, LapceWorkspaceType, SshHost},
 };
 
 mod remote;
 mod ssh;
 #[cfg(windows)]
 mod wsl;
+
+/// Resolve the remote user's home directory via a short SSH session.
+/// Falls back to `/` when the query fails (Unix) so File Explorer still opens.
+pub fn resolve_ssh_home(ssh: &SshHost) -> PathBuf {
+    use remote::Remote;
+
+    let remote = SshRemote { ssh: ssh.clone() };
+    match remote.home_dir() {
+        Ok(home) => {
+            let home = home.trim();
+            if home.is_empty() {
+                PathBuf::from("/")
+            } else {
+                PathBuf::from(home)
+            }
+        }
+        Err(e) => {
+            error!("failed to resolve SSH home for {}: {e}", ssh.display_name());
+            PathBuf::from("/")
+        }
+    }
+}
 
 pub struct Proxy {
     pub tx: Sender<CoreNotification>,
@@ -90,6 +113,13 @@ pub fn new_proxy(
                             proxy_rpc.clone(),
                         ) {
                             error!("Failed to start SSH remote: {e}");
+                            core_rpc.show_message(
+                                "SSH Remote".to_string(),
+                                ShowMessageParams {
+                                    typ: MessageType::ERROR,
+                                    message: format!("{e}"),
+                                },
+                            );
                         }
                     }
                     #[cfg(windows)]

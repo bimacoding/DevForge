@@ -1,14 +1,14 @@
 use std::{borrow::Cow, path::PathBuf, str::FromStr, sync::Arc};
 
+use devforge_core::{
+    buffer::rope_text::RopeText, movement::Movement, rope_text_pos::RopeTextPosition,
+};
+use devforge_rpc::{plugin::PluginId, proxy::ProxyRpcHandler};
 use floem::{
     peniko::kurbo::Rect,
     reactive::{ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
     views::editor::{id::EditorId, text::Document},
 };
-use devforge_core::{
-    buffer::rope_text::RopeText, movement::Movement, rope_text_pos::RopeTextPosition,
-};
-use devforge_rpc::{plugin::PluginId, proxy::ProxyRpcHandler};
 use lsp_types::{
     CompletionItem, CompletionResponse, CompletionTextEdit, InsertTextFormat,
     Position,

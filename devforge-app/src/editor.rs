@@ -6,6 +6,23 @@ use std::{
     time::Duration,
 };
 
+use devforge_core::{
+    buffer::{
+        InvalLines,
+        diff::DiffLines,
+        rope_text::{RopeText, RopeTextVal},
+    },
+    command::{
+        EditCommand, FocusCommand, MotionModeCommand, MultiSelectionCommand,
+        ScrollCommand,
+    },
+    cursor::{Cursor, CursorMode},
+    editor::EditType,
+    mode::{Mode, MotionMode},
+    rope_text_pos::RopeTextPosition,
+    selection::{InsertDrift, SelRegion, Selection},
+};
+use devforge_rpc::{buffer::BufferId, plugin::PluginId, proxy::ProxyResponse};
 use floem::{
     ViewId,
     action::{TimerToken, exec_after, show_context_menu},
@@ -32,23 +49,6 @@ use floem::{
     },
 };
 use itertools::Itertools;
-use devforge_core::{
-    buffer::{
-        InvalLines,
-        diff::DiffLines,
-        rope_text::{RopeText, RopeTextVal},
-    },
-    command::{
-        EditCommand, FocusCommand, MotionModeCommand, MultiSelectionCommand,
-        ScrollCommand,
-    },
-    cursor::{Cursor, CursorMode},
-    editor::EditType,
-    mode::{Mode, MotionMode},
-    rope_text_pos::RopeTextPosition,
-    selection::{InsertDrift, SelRegion, Selection},
-};
-use devforge_rpc::{buffer::BufferId, plugin::PluginId, proxy::ProxyResponse};
 use lapce_xi_rope::{Rope, RopeDelta, Transformer};
 use lsp_types::{
     CodeActionResponse, CompletionItem, CompletionTextEdit, GotoDefinitionResponse,
@@ -398,12 +398,15 @@ impl EditorData {
     }
 
     pub fn doc(&self) -> Rc<Doc> {
-        let doc = self.editor.doc();
-        let Ok(doc) = (doc as Rc<dyn ::std::any::Any>).downcast() else {
-            panic!("doc is not Rc<Doc>");
-        };
+        self.try_doc().expect("editor doc signal was disposed")
+    }
 
-        doc
+    /// Like [`Self::doc`], but returns `None` if the editor's reactive scope was
+    /// already disposed (e.g. a Settings tab closed while its local editor was
+    /// left registered in [`crate::main_split::Editors`]).
+    pub fn try_doc(&self) -> Option<Rc<Doc>> {
+        let doc = self.editor.doc_signal().try_get_untracked()?;
+        (doc as Rc<dyn ::std::any::Any>).downcast().ok()
     }
 
     /// The signal for the editor's document.
@@ -1015,9 +1018,10 @@ impl EditorData {
                             {
                                 let mut selection =
                                     devforge_core::selection::Selection::new();
-                                let region = devforge_core::selection::SelRegion::new(
-                                    *start, *end, None,
-                                );
+                                let region =
+                                    devforge_core::selection::SelRegion::new(
+                                        *start, *end, None,
+                                    );
                                 selection.add_region(region);
                                 self.cursor().update(|cursor| {
                                     cursor.set_insert(selection);
@@ -2497,7 +2501,9 @@ impl EditorData {
     }
 
     pub fn save_doc_position(&self) {
-        let doc = self.doc();
+        let Some(doc) = self.try_doc() else {
+            return;
+        };
         let path = match if doc.loaded() {
             doc.content.with_untracked(|c| c.path().cloned())
         } else {

@@ -1,12 +1,12 @@
 use std::{path::PathBuf, rc::Rc};
 
+use devforge_core::mode::Mode;
+use devforge_rpc::source_control::FileDiff;
 use floem::{
     keyboard::Modifiers,
     reactive::{RwSignal, Scope, SignalWith},
 };
 use indexmap::IndexMap;
-use devforge_core::mode::Mode;
-use devforge_rpc::source_control::FileDiff;
 
 use crate::{
     command::{CommandExecuted, CommandKind},

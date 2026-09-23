@@ -1,9 +1,5 @@
 use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
 
-use floem::{
-    ext_event::create_ext_action,
-    reactive::{Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
-};
 use devforge_core::mode::Mode;
 use devforge_rpc::{
     dap_types::{
@@ -11,6 +7,10 @@ use devforge_rpc::{
     },
     proxy::ProxyResponse,
     terminal::{TermId, TerminalProfile},
+};
+use floem::{
+    ext_event::create_ext_action,
+    reactive::{Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
 };
 
 use super::{data::TerminalData, tab::TerminalTabData};

@@ -6,11 +6,6 @@ use std::{
     time::Instant,
 };
 
-use floem::{
-    ext_event::create_ext_action,
-    reactive::{Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
-    views::VirtualVector,
-};
 use devforge_rpc::{
     dap_types::{
         self, DapId, RunDebugConfig, SourceBreakpoint, StackFrame, Stopped,
@@ -18,6 +13,11 @@ use devforge_rpc::{
     },
     proxy::ProxyResponse,
     terminal::TermId,
+};
+use floem::{
+    ext_event::create_ext_action,
+    reactive::{Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
+    views::VirtualVector,
 };
 use serde::{Deserialize, Serialize};
 

@@ -76,6 +76,12 @@ impl LapceIcons {
     pub const DIRECTORY_CLOSED: &'static str = "directory.closed";
     pub const DIRECTORY_OPENED: &'static str = "directory.opened";
 
+    pub const FILE_EXPLORER_NEW_FILE: &'static str = "file_explorer.new_file";
+    pub const FILE_EXPLORER_NEW_DIRECTORY: &'static str =
+        "file_explorer.new_directory";
+    pub const FILE_EXPLORER_REFRESH: &'static str = "file_explorer.refresh";
+    pub const FILE_EXPLORER_COLLAPSE: &'static str = "file_explorer.collapse";
+
     pub const PANEL_RESTORE: &'static str = "panel.restore";
     pub const PANEL_MAXIMISE: &'static str = "panel.maximise";
 

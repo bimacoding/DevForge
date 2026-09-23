@@ -1,5 +1,10 @@
 use std::{rc::Rc, sync::Arc};
 
+use devforge_core::{
+    buffer::rope_text::RopeText,
+    cursor::{Cursor, CursorMode},
+    selection::Selection,
+};
 use floem::{
     Renderer, View, ViewId,
     action::{set_ime_allowed, set_ime_cursor_area},
@@ -23,11 +28,6 @@ use floem::{
     text::{Attrs, AttrsList, FamilyOwned, TextLayout},
     unit::PxPct,
     views::Decorators,
-};
-use devforge_core::{
-    buffer::rope_text::RopeText,
-    cursor::{Cursor, CursorMode},
-    selection::Selection,
 };
 use lapce_xi_rope::Rope;
 

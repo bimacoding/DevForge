@@ -16,7 +16,6 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use clap::Parser;
-use dispatch::Dispatcher;
 use devforge_core::{directory::Directory, meta};
 use devforge_rpc::{
     RpcMessage,
@@ -25,6 +24,7 @@ use devforge_rpc::{
     proxy::{ProxyMessage, ProxyNotification, ProxyRpcHandler},
     stdio::stdio_transport,
 };
+use dispatch::Dispatcher;
 use tracing::error;
 
 #[derive(Parser)]

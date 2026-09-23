@@ -1,5 +1,9 @@
 use std::{rc::Rc, sync::Arc};
 
+use devforge_rpc::{
+    dap_types::{DapId, ThreadId},
+    terminal::TermId,
+};
 use floem::{
     View,
     event::EventListener,
@@ -13,10 +17,6 @@ use floem::{
         Decorators, container, dyn_stack, label, scroll, stack, svg, text,
         virtual_stack,
     },
-};
-use devforge_rpc::{
-    dap_types::{DapId, ThreadId},
-    terminal::TermId,
 };
 
 use super::{data::PanelSection, position::PanelPosition, view::PanelBuilder};

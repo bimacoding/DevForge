@@ -1,5 +1,10 @@
 use std::{rc::Rc, sync::atomic};
 
+use devforge_core::buffer::{
+    diff::{DiffExpand, DiffLines, expand_diff_lines, rope_diff},
+    rope_text::RopeText,
+};
+use devforge_rpc::{buffer::BufferId, proxy::ProxyResponse};
 use floem::{
     View,
     event::{Event, EventListener},
@@ -10,11 +15,6 @@ use floem::{
         Decorators, clip, dyn_stack, editor::id::EditorId, empty, label, stack, svg,
     },
 };
-use devforge_core::buffer::{
-    diff::{DiffExpand, DiffLines, expand_diff_lines, rope_diff},
-    rope_text::RopeText,
-};
-use devforge_rpc::{buffer::BufferId, proxy::ProxyResponse};
 use lapce_xi_rope::Rope;
 use serde::{Deserialize, Serialize};
 

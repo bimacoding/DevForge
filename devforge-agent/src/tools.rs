@@ -33,8 +33,11 @@ pub struct ToolContext<'a> {
 pub trait WorkspaceBackend: Send + Sync {
     fn root(&self) -> &Path;
     fn read_file(&self, path: &Path) -> Result<String>;
+    fn write_file(&self, path: &Path, content: &str) -> Result<()>;
+    fn create_directory(&self, path: &Path) -> Result<()>;
     fn list_directory(&self, path: &Path) -> Result<Vec<String>>;
-    fn search_code(&self, query: &str, max_results: usize) -> Result<Vec<SearchHit>>;
+    fn search_code(&self, query: &str, max_results: usize)
+    -> Result<Vec<SearchHit>>;
 }
 
 #[derive(Debug, Clone)]
@@ -64,23 +67,38 @@ impl WorkspaceBackend for FsWorkspaceBackend {
         fs::read_to_string(path).with_context(|| format!("read {}", path.display()))
     }
 
+    fn write_file(&self, path: &Path, content: &str) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).with_context(|| {
+                    format!("create parent {}", parent.display())
+                })?;
+            }
+        }
+        fs::write(path, content).with_context(|| format!("write {}", path.display()))
+    }
+
+    fn create_directory(&self, path: &Path) -> Result<()> {
+        fs::create_dir_all(path).with_context(|| format!("mkdir {}", path.display()))
+    }
+
     fn list_directory(&self, path: &Path) -> Result<Vec<String>> {
         let mut entries = Vec::new();
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            let suffix = if entry.file_type()?.is_dir() {
-                "/"
-            } else {
-                ""
-            };
+            let suffix = if entry.file_type()?.is_dir() { "/" } else { "" };
             entries.push(format!("{name}{suffix}"));
         }
         entries.sort();
         Ok(entries)
     }
 
-    fn search_code(&self, query: &str, max_results: usize) -> Result<Vec<SearchHit>> {
+    fn search_code(
+        &self,
+        query: &str,
+        max_results: usize,
+    ) -> Result<Vec<SearchHit>> {
         if query.is_empty() {
             return Ok(Vec::new());
         }
@@ -206,10 +224,90 @@ pub fn ask_tools() -> Value {
     ])
 }
 
+fn write_tools() -> Value {
+    json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "write_file",
+                "description": "Create or overwrite a UTF-8 text file relative to the workspace root. Creates parent directories as needed.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "content": { "type": "string" }
+                    },
+                    "required": ["path", "content"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "str_replace",
+                "description": "Replace an exact substring in a file. Fails if old_string is missing or (unless replace_all) matches more than once.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "old_string": { "type": "string" },
+                        "new_string": { "type": "string" },
+                        "replace_all": { "type": "boolean" }
+                    },
+                    "required": ["path", "old_string", "new_string"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_directory",
+                "description": "Create a directory (and parents) relative to the workspace root.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        }
+    ])
+}
+
+/// Ask + write tools for Edit / Agent modes.
+pub fn edit_tools() -> Value {
+    merge_tool_arrays(ask_tools(), write_tools())
+}
+
+/// Agent mode tools (same write surface as Edit for this phase).
+pub fn agent_tools() -> Value {
+    edit_tools()
+}
+
+fn merge_tool_arrays(a: Value, b: Value) -> Value {
+    let mut out = a.as_array().cloned().unwrap_or_default();
+    if let Some(extra) = b.as_array() {
+        out.extend(extra.iter().cloned());
+    }
+    json!(out)
+}
+
+pub fn tools_for_mode(mode: crate::mode::AgentMode) -> Value {
+    match mode {
+        crate::mode::AgentMode::Ask => ask_tools(),
+        crate::mode::AgentMode::Edit => edit_tools(),
+        crate::mode::AgentMode::Agent => agent_tools(),
+    }
+}
+
 pub fn tool_permission(name: &str) -> PermissionLevel {
     match name {
         "read_file" | "list_directory" | "search_code" | "get_project_structure" => {
             PermissionLevel::ReadOnly
+        }
+        "write_file" | "str_replace" | "create_directory" => {
+            PermissionLevel::Confirm
         }
         _ => PermissionLevel::Dangerous,
     }
@@ -247,8 +345,39 @@ pub fn execute_tool(ctx: &ToolContext<'_>, call: &ToolCall) -> ToolResult {
                 is_error: true,
             },
         },
-        "get_project_structure" => match tool_project_structure(ctx, &call.arguments)
-        {
+        "get_project_structure" => {
+            match tool_project_structure(ctx, &call.arguments) {
+                Ok(s) => ToolResult {
+                    content: s,
+                    is_error: false,
+                },
+                Err(e) => ToolResult {
+                    content: e.to_string(),
+                    is_error: true,
+                },
+            }
+        }
+        "write_file" => match tool_write_file(ctx, &call.arguments) {
+            Ok(s) => ToolResult {
+                content: s,
+                is_error: false,
+            },
+            Err(e) => ToolResult {
+                content: e.to_string(),
+                is_error: true,
+            },
+        },
+        "str_replace" => match tool_str_replace(ctx, &call.arguments) {
+            Ok(s) => ToolResult {
+                content: s,
+                is_error: false,
+            },
+            Err(e) => ToolResult {
+                content: e.to_string(),
+                is_error: true,
+            },
+        },
+        "create_directory" => match tool_create_directory(ctx, &call.arguments) {
             Ok(s) => ToolResult {
                 content: s,
                 is_error: false,
@@ -259,7 +388,7 @@ pub fn execute_tool(ctx: &ToolContext<'_>, call: &ToolCall) -> ToolResult {
             },
         },
         other => ToolResult {
-            content: format!("unknown or disallowed tool in Ask mode: {other}"),
+            content: format!("unknown tool: {other}"),
             is_error: true,
         },
     }
@@ -364,4 +493,162 @@ fn tool_project_structure(ctx: &ToolContext<'_>, args: &Value) -> Result<String>
         }
     }
     Ok(lines.join("\n"))
+}
+
+fn tool_write_file(ctx: &ToolContext<'_>, args: &Value) -> Result<String> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing path"))?;
+    let content = args
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing content"))?;
+    let resolved = resolve_under_root(ctx.backend.root(), path)?;
+    if is_sensitive_path(&resolved) {
+        anyhow::bail!("refusing to write sensitive path: {path}");
+    }
+    ctx.backend.write_file(&resolved, content)?;
+    Ok(format!("Wrote {} bytes to `{path}`", content.len()))
+}
+
+fn tool_str_replace(ctx: &ToolContext<'_>, args: &Value) -> Result<String> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing path"))?;
+    let old = args
+        .get("old_string")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing old_string"))?;
+    let new = args
+        .get("new_string")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing new_string"))?;
+    let replace_all = args
+        .get("replace_all")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if old.is_empty() {
+        anyhow::bail!("old_string must not be empty");
+    }
+    let resolved = resolve_under_root(ctx.backend.root(), path)?;
+    if is_sensitive_path(&resolved) {
+        anyhow::bail!("refusing to edit sensitive path: {path}");
+    }
+    let content = ctx.backend.read_file(&resolved)?;
+    let matches = content.matches(old).count();
+    if matches == 0 {
+        anyhow::bail!("old_string not found in `{path}`");
+    }
+    if matches > 1 && !replace_all {
+        anyhow::bail!(
+            "old_string matched {matches} times in `{path}`; set replace_all=true or provide a more unique string"
+        );
+    }
+    let updated = if replace_all {
+        content.replace(old, new)
+    } else {
+        content.replacen(old, new, 1)
+    };
+    ctx.backend.write_file(&resolved, &updated)?;
+    Ok(format!(
+        "Updated `{path}` ({} replacement{})",
+        if replace_all { matches } else { 1 },
+        if replace_all && matches != 1 { "s" } else { "" }
+    ))
+}
+
+fn tool_create_directory(ctx: &ToolContext<'_>, args: &Value) -> Result<String> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing path"))?;
+    let resolved = resolve_under_root(ctx.backend.root(), path)?;
+    if is_sensitive_path(&resolved) {
+        anyhow::bail!("refusing to create sensitive path: {path}");
+    }
+    ctx.backend.create_directory(&resolved)?;
+    Ok(format!("Created directory `{path}`"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn write_and_str_replace_roundtrip() {
+        let dir = tempdir().unwrap();
+        let backend = FsWorkspaceBackend::new(dir.path());
+        let tool_ctx = ToolContext {
+            backend: &backend,
+            max_file_bytes: 200_000,
+        };
+
+        let write = execute_tool(
+            &tool_ctx,
+            &ToolCall {
+                id: "1".into(),
+                name: "write_file".into(),
+                arguments: json!({
+                    "path": "src/hello.rs",
+                    "content": "fn main() {\n    println!(\"hi\");\n}\n"
+                }),
+            },
+        );
+        assert!(!write.is_error, "{}", write.content);
+
+        let replace = execute_tool(
+            &tool_ctx,
+            &ToolCall {
+                id: "2".into(),
+                name: "str_replace".into(),
+                arguments: json!({
+                    "path": "src/hello.rs",
+                    "old_string": "hi",
+                    "new_string": "hello"
+                }),
+            },
+        );
+        assert!(!replace.is_error, "{}", replace.content);
+
+        let read = execute_tool(
+            &tool_ctx,
+            &ToolCall {
+                id: "3".into(),
+                name: "read_file".into(),
+                arguments: json!({ "path": "src/hello.rs" }),
+            },
+        );
+        assert!(!read.is_error);
+        assert!(read.content.contains("hello"));
+    }
+
+    #[test]
+    fn ask_tools_exclude_writes() {
+        let tools = ask_tools();
+        let names: Vec<_> = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.pointer("/function/name")?.as_str())
+            .collect();
+        assert!(names.contains(&"read_file"));
+        assert!(!names.contains(&"write_file"));
+    }
+
+    #[test]
+    fn edit_tools_include_writes() {
+        let tools = edit_tools();
+        let names: Vec<_> = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.pointer("/function/name")?.as_str())
+            .collect();
+        assert!(names.contains(&"write_file"));
+        assert!(names.contains(&"str_replace"));
+        assert_eq!(tool_permission("write_file"), PermissionLevel::Confirm);
+    }
 }

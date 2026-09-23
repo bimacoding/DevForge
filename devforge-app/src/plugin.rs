@@ -5,6 +5,12 @@ use std::{
 };
 
 use anyhow::Result;
+use devforge_core::{command::EditCommand, directory::Directory, mode::Mode};
+use devforge_proxy::plugin::{download_volt, volt_icon, wasi::find_all_volts};
+use devforge_rpc::{
+    core::{CoreNotification, CoreRpcHandler},
+    plugin::{VoltID, VoltInfo, VoltMetadata},
+};
 use floem::{
     IntoView, View,
     action::show_context_menu,
@@ -23,12 +29,6 @@ use floem::{
     },
 };
 use indexmap::IndexMap;
-use devforge_core::{command::EditCommand, directory::Directory, mode::Mode};
-use devforge_proxy::plugin::{download_volt, volt_icon, wasi::find_all_volts};
-use devforge_rpc::{
-    core::{CoreNotification, CoreRpcHandler},
-    plugin::{VoltID, VoltInfo, VoltMetadata},
-};
 use lsp_types::MessageType;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
