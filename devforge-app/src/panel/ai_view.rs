@@ -602,6 +602,15 @@ fn attachment_chips(
     .style(|s| s.flex_row().flex_wrap(FlexWrap::Wrap).margin_top(4.0))
 }
 
+/// "N Files" label for the transcript footer ("" when nothing was touched).
+fn format_touched_count(n: usize) -> String {
+    match n {
+        0 => String::new(),
+        1 => "1 File".to_string(),
+        n => format!("{n} Files"),
+    }
+}
+
 /// Icon button that fills its background on hover (Cursor-like toolbar button).
 fn icon_button<S: std::fmt::Display + 'static>(
     icon: impl Fn() -> &'static str + 'static,
@@ -635,15 +644,34 @@ fn icon_button<S: std::fmt::Display + 'static>(
     crate::app::tooltip_label(config, view, tooltip_)
 }
 
-/// Footer listing files the agent touched this conversation plus a Review
-/// action that opens the diff of those files (Cursor shows "N Files · Review").
+/// Footer under the transcript: files touched this conversation, plus the
+/// Stop (while running) and Review actions — Cursor shows "N Files · Stop · Review".
 fn touched_files_footer(
     ai: AiData,
     window_tab_data: Rc<WindowTabData>,
 ) -> impl View {
     let config = ai.common.config;
     let ai_count = ai.clone();
+    let ai_stop = ai.clone();
     let ws_root = window_tab_data.workspace.path.clone();
+
+    let stop_btn = label(|| "Stop".to_string())
+        .on_click_stop(move |_| {
+            ai_stop.stop();
+        })
+        .style(move |s| {
+            let config = config.get();
+            s.padding_horiz(8.0)
+                .padding_vert(2.0)
+                .border_radius(6.0)
+                .font_size((config.ui.font_size() as f32) * 0.82)
+                .color(config.color(LapceColor::EDITOR_FOREGROUND))
+                .cursor(CursorStyle::Pointer)
+                .hover(|s| {
+                    s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+                })
+                .apply_if(!ai.busy.get(), |s| s.hide())
+        });
 
     let review_btn = {
         let ai_review = ai.clone();
@@ -676,27 +704,20 @@ fn touched_files_footer(
     };
 
     stack((
-        label(move || {
-            let n = ai_count.touched_files().len();
-            if n == 0 {
-                String::new()
-            } else if n == 1 {
-                "1 File".to_string()
-            } else {
-                format!("{n} Files")
-            }
-        })
-        .style(move |s| {
-            let config = config.get();
-            s.font_bold()
-                .font_size((config.ui.font_size() as f32) * 0.82)
-                .color(config.color(LapceColor::EDITOR_DIM))
-        }),
+        label(move || format_touched_count(ai_count.touched_files().len())).style(
+            move |s| {
+                let config = config.get();
+                s.font_bold()
+                    .font_size((config.ui.font_size() as f32) * 0.82)
+                    .color(config.color(LapceColor::EDITOR_DIM))
+            },
+        ),
         empty().style(|s| s.flex_grow(1.0)),
+        stop_btn,
         review_btn,
     ))
     .style(move |s| {
-        let visible = !ai.touched_files().is_empty();
+        let visible = !ai.touched_files().is_empty() || ai.busy.get();
         let config = config.get();
         s.width_pct(100.0)
             .items_center()
@@ -1208,6 +1229,15 @@ fn dropdown_button(
 #[cfg(test)]
 mod tests {
     use crate::ai::{AiAgentStep, AiStepState, step_summary, tool_verb};
+
+    use super::format_touched_count;
+
+    #[test]
+    fn touched_count_label_matches_cursor_wording() {
+        assert_eq!(format_touched_count(0), "");
+        assert_eq!(format_touched_count(1), "1 File");
+        assert_eq!(format_touched_count(3), "3 Files");
+    }
 
     #[test]
     fn tool_verbs_are_human_readable() {
