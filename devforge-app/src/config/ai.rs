@@ -76,10 +76,16 @@ pub struct AiConfig {
     pub mcp_servers: Vec<McpServerConfig>,
 
     #[field_names(
-        desc = "Load Agent Skills from ~/.devforge/skills and .devforge/skills into the system prompt"
+        desc = "Load Skills, MCPs, Subagents, Rules, Commands and Hooks from .devforge (and .cursor) into the agent"
     )]
-    #[serde(default = "default_true")]
-    pub skills_enabled: bool,
+    #[serde(default = "default_true", alias = "skills-enabled")]
+    pub assets_enabled: bool,
+
+    #[field_names(
+        desc = "Run lifecycle hooks from hooks.json. Hooks execute local shell commands — keep off unless you trust them"
+    )]
+    #[serde(default)]
+    pub hooks_enabled: bool,
 
     #[field_names(
         desc = "Max concurrent AI runs across chats (1–8). Extra prompts on a busy chat still queue."
@@ -116,7 +122,8 @@ impl Default for AiConfig {
             require_tool_approval: true,
             mcp_enabled: false,
             mcp_servers: Vec::new(),
-            skills_enabled: true,
+            assets_enabled: true,
+            hooks_enabled: false,
             max_parallel_runs: 2,
         }
     }
@@ -129,5 +136,49 @@ impl AiConfig {
 
     pub fn resolved_api_key(&self) -> String {
         resolve_api_key(&self.provider, &self.api_key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Serialise a config the same way the app writes `settings.toml`.
+    fn to_document(cfg: &AiConfig) -> toml_edit::Document {
+        toml_edit::ser::to_document(cfg).expect("serialize AiConfig")
+    }
+
+    fn from_document(doc: &toml_edit::Document) -> AiConfig {
+        toml::from_str(&doc.to_string()).expect("deserialize AiConfig")
+    }
+
+    /// `hooks-enabled` spawns local processes, so it must default to off and
+    /// must round-trip through the kebab-case key used in `settings.toml`.
+    #[test]
+    fn hooks_enabled_is_opt_in_and_kebab_cased() {
+        let default = AiConfig::default();
+        assert!(default.assets_enabled, "assets should be on by default");
+        assert!(!default.hooks_enabled, "hooks must be opt-in");
+
+        let mut doc = to_document(&default);
+        assert!(
+            doc.contains_key("hooks-enabled"),
+            "settings.toml key must be kebab-case, got: {doc}"
+        );
+        assert!(!doc["hooks-enabled"].as_bool().unwrap());
+
+        doc["hooks-enabled"] = toml_edit::value(true);
+        assert!(from_document(&doc).hooks_enabled);
+    }
+
+    /// The legacy `skills-enabled` key must keep working as an alias.
+    #[test]
+    fn legacy_skills_enabled_alias_still_works() {
+        let mut doc = to_document(&AiConfig::default());
+        doc.remove("assets-enabled");
+        doc["skills-enabled"] = toml_edit::value(false);
+
+        let parsed = from_document(&doc);
+        assert!(!parsed.assets_enabled);
     }
 }

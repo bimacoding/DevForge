@@ -383,6 +383,10 @@ fn right(
                     .entry(MenuItem::new("Open Settings").action(move || {
                         workbench_command.send(LapceWorkbenchCommand::OpenSettings)
                     }))
+                    .entry(MenuItem::new("Open Agent Assets").action(move || {
+                        workbench_command
+                            .send(LapceWorkbenchCommand::OpenAgentAssets)
+                    }))
                     .entry(MenuItem::new("Open Keyboard Shortcuts").action(
                         move || {
                             workbench_command

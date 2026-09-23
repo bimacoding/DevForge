@@ -12,7 +12,6 @@ use crate::{
     permission::PermissionLevel,
     prompt::{AGENT_SYSTEM_PROMPT, ASK_SYSTEM_PROMPT, EDIT_SYSTEM_PROMPT},
     provider::{AgentEvent, ChatMessage, OpenAiCompatibleProvider, ProviderConfig},
-    skills::load_skills_prompt,
     tools::{
         ToolCall, ToolContext, ToolResult, WorkspaceBackend, execute_tool,
         tool_permission, tools_for_mode,
@@ -37,7 +36,12 @@ pub struct AgentRequest {
     pub max_iterations: usize,
     pub cancel: Arc<AtomicBool>,
     pub require_tool_approval: bool,
-    pub skills_enabled: bool,
+    /// Load Skills / Rules / Subagents from the workspace and user asset dirs.
+    pub assets_enabled: bool,
+    /// Execute lifecycle hooks (`afterFileEdit`, `afterAgentRun`).
+    ///
+    /// Hooks spawn local processes, so this is opt-in via a user setting.
+    pub hooks_enabled: bool,
     /// Optional MCP hub (tools merged into the model tool list).
     pub mcp: Option<Arc<McpHub>>,
 }
@@ -99,10 +103,31 @@ pub fn run_agent(
         AgentMode::Edit => EDIT_SYSTEM_PROMPT.to_string(),
         AgentMode::Agent => AGENT_SYSTEM_PROMPT.to_string(),
     };
-    if request.skills_enabled {
-        let skills = load_skills_prompt(Some(backend.root()));
-        system.push_str(&skills);
+    if request.assets_enabled {
+        let assets = crate::assets::discover_all(Some(backend.root()));
+        system.push_str(&crate::assets::build_prompt(&assets));
     }
+
+    let hooks = crate::hooks::HookRunner::new(backend.root(), request.hooks_enabled);
+    let fire_hooks = |event: crate::hooks::HookEvent,
+                      on_event: &mut dyn FnMut(AgentEvent)| {
+        for outcome in hooks.run(event) {
+            let status = if outcome.success { "ok" } else { "failed" };
+            let mut text = format!(
+                "hook {} {}: {} ({}ms)",
+                outcome.event.label(),
+                status,
+                outcome.command,
+                outcome.duration_ms
+            );
+            let output = outcome.output.trim();
+            if !output.is_empty() {
+                text.push('\n');
+                text.push_str(output);
+            }
+            on_event(AgentEvent::Activity(text));
+        }
+    };
 
     let mut messages = vec![ChatMessage::system(system)];
     if !request.context_preamble.is_empty() {
@@ -178,6 +203,7 @@ pub fn run_agent(
             };
 
         if response.tool_calls.is_empty() {
+            fire_hooks(crate::hooks::HookEvent::AfterAgentRun, on_event);
             on_event(AgentEvent::State("Completed"));
             on_event(AgentEvent::Done);
             return Ok(());
@@ -221,13 +247,19 @@ pub fn run_agent(
                 output: truncate_tool_output(&result.content),
                 is_error: result.is_error,
             });
+            let edited = !result.is_error
+                && matches!(call.name.as_str(), "write_file" | "str_replace");
             messages.push(ChatMessage::tool(&call.id, result.content));
+            if edited {
+                fire_hooks(crate::hooks::HookEvent::AfterFileEdit, on_event);
+            }
         }
     }
 
     on_event(AgentEvent::Error(
         "Reached max tool iterations without a final answer".into(),
     ));
+    fire_hooks(crate::hooks::HookEvent::AfterAgentRun, on_event);
     on_event(AgentEvent::State("Error"));
     on_event(AgentEvent::Done);
     Ok(())

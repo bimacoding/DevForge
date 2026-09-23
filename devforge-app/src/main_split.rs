@@ -47,7 +47,7 @@ use crate::{
         EditorTabChild, EditorTabChildSource, EditorTabData, EditorTabInfo,
     },
     id::{
-        DiffEditorId, EditorTabId, KeymapId, SettingsId, SplitId,
+        AgentAssetsId, DiffEditorId, EditorTabId, KeymapId, SettingsId, SplitId,
         ThemeColorSettingsId, VoltViewId,
     },
     keypress::{EventRef, KeyPressData, KeyPressHandle},
@@ -535,6 +535,7 @@ impl MainSplitData {
                 Some(handle)
             }
             EditorTabChild::Settings(_) => None,
+            EditorTabChild::AgentAssets(_) => None,
             EditorTabChild::ThemeColorSettings(_) => None,
             EditorTabChild::Keymap(_) => None,
             EditorTabChild::Volt(_, _) => None,
@@ -868,6 +869,7 @@ impl MainSplitData {
                             }
                         }
                         EditorTabChild::Settings(_) => true,
+                        EditorTabChild::AgentAssets(_) => true,
                         EditorTabChild::ThemeColorSettings(_) => true,
                         EditorTabChild::Keymap(_) => true,
                         EditorTabChild::Volt(_, _) => true,
@@ -946,6 +948,28 @@ impl MainSplitData {
                         active_editor_tab.with_untracked(|editor_tab| {
                             editor_tab.children.iter().position(|(_, _, child)| {
                                 matches!(child, EditorTabChild::Settings(_))
+                            })
+                        })
+                    {
+                        Some(index)
+                    } else if ignore_unconfirmed {
+                        None
+                    } else {
+                        active_editor_tab.with_untracked(|editor_tab| {
+                            editor_tab
+                                .get_unconfirmed_editor_tab_child(
+                                    editors,
+                                    &diff_editors,
+                                )
+                                .map(|(i, _)| i)
+                        })
+                    }
+                }
+                EditorTabChildSource::AgentAssets => {
+                    if let Some(index) =
+                        active_editor_tab.with_untracked(|editor_tab| {
+                            editor_tab.children.iter().position(|(_, _, child)| {
+                                matches!(child, EditorTabChild::AgentAssets(_))
                             })
                         })
                     {
@@ -1084,6 +1108,9 @@ impl MainSplitData {
                 EditorTabChildSource::Settings => {
                     EditorTabChild::Settings(SettingsId::next())
                 }
+                EditorTabChildSource::AgentAssets => {
+                    EditorTabChild::AgentAssets(AgentAssetsId::next())
+                }
                 EditorTabChildSource::ThemeColorSettings => {
                     EditorTabChild::ThemeColorSettings(SettingsId::next())
                 }
@@ -1126,6 +1153,7 @@ impl MainSplitData {
                         }
                         EditorTabChild::DiffEditor(_) => {}
                         EditorTabChild::Settings(_) => {}
+                        EditorTabChild::AgentAssets(_) => {}
                         EditorTabChild::ThemeColorSettings(_) => {}
                         EditorTabChild::Keymap(_) => {}
                         EditorTabChild::Volt(_, _) => {}
@@ -1169,6 +1197,10 @@ impl MainSplitData {
                 (EditorTabChild::Settings(_), EditorTabChildSource::Settings) => {
                     true
                 }
+                (
+                    EditorTabChild::AgentAssets(_),
+                    EditorTabChildSource::AgentAssets,
+                ) => true,
                 _ => false,
             };
             if is_same {
@@ -1192,6 +1224,7 @@ impl MainSplitData {
                     });
                 }
                 EditorTabChild::Settings(_) => {}
+                EditorTabChild::AgentAssets(_) => {}
                 EditorTabChild::ThemeColorSettings(_) => {}
                 EditorTabChild::Keymap(_) => {}
                 EditorTabChild::Volt(_, _) => {}
@@ -1242,6 +1275,12 @@ impl MainSplitData {
                                 .iter()
                                 .position(|(_, _, child)| {
                                     matches!(child, EditorTabChild::Settings(_))
+                                }),
+                            EditorTabChildSource::AgentAssets => editor_tab
+                                .children
+                                .iter()
+                                .position(|(_, _, child)| {
+                                    matches!(child, EditorTabChild::AgentAssets(_))
                                 }),
                             EditorTabChildSource::ThemeColorSettings => editor_tab
                                 .children
@@ -1572,6 +1611,9 @@ impl MainSplitData {
             }
             EditorTabChild::Settings(_) => {
                 EditorTabChild::Settings(SettingsId::next())
+            }
+            EditorTabChild::AgentAssets(_) => {
+                EditorTabChild::AgentAssets(AgentAssetsId::next())
             }
             EditorTabChild::ThemeColorSettings(_) => {
                 EditorTabChild::ThemeColorSettings(ThemeColorSettingsId::next())
@@ -1919,6 +1961,7 @@ impl MainSplitData {
             }
             EditorTabChild::DiffEditor(_) => None,
             EditorTabChild::Settings(_) => None,
+            EditorTabChild::AgentAssets(_) => None,
             EditorTabChild::ThemeColorSettings(_) => None,
             EditorTabChild::Keymap(_) => None,
             EditorTabChild::Volt(_, _) => None,
@@ -2157,6 +2200,7 @@ impl MainSplitData {
                 }
             }
             EditorTabChild::Settings(_) => {}
+            EditorTabChild::AgentAssets(_) => {}
             EditorTabChild::ThemeColorSettings(_) => {}
             EditorTabChild::Keymap(_) => {}
             EditorTabChild::Volt(_, _) => {}
@@ -2421,6 +2465,10 @@ impl MainSplitData {
 
     pub fn open_settings(&self) {
         self.get_editor_tab_child(EditorTabChildSource::Settings, false, false);
+    }
+
+    pub fn open_agent_assets(&self) {
+        self.get_editor_tab_child(EditorTabChildSource::AgentAssets, false, false);
     }
 
     pub fn open_theme_color_settings(&self) {
@@ -2750,6 +2798,7 @@ impl MainSplitData {
                     .set(Some((editor_tab_id, *diff_editor_id)));
             }
             EditorTabChild::Settings(_) => {}
+            EditorTabChild::AgentAssets(_) => {}
             EditorTabChild::ThemeColorSettings(_) => {}
             EditorTabChild::Keymap(_) => {}
             EditorTabChild::Volt(_, _) => {}

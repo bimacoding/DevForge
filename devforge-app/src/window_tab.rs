@@ -866,6 +866,9 @@ impl WindowTabData {
             OpenSettings => {
                 self.main_split.open_settings();
             }
+            OpenAgentAssets => {
+                self.main_split.open_agent_assets();
+            }
             OpenSettingsFile => {
                 if let Some(path) = LapceConfig::settings_file() {
                     self.main_split.jump_to_location(

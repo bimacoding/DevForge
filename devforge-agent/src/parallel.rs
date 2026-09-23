@@ -37,7 +37,7 @@ pub struct TaggedAgentEvent {
 
 /// How many concurrent runs are allowed (`0` → treat as 1, hard cap 8).
 pub fn clamp_max_parallel(n: usize) -> usize {
-    n.max(1).min(8)
+    n.clamp(1, 8)
 }
 
 /// Decide whether another run may start given current load and config.

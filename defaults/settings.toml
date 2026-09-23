@@ -96,7 +96,8 @@ auto-run-safe-terminal = false
 require-plan-approval = true
 require-tool-approval = true
 mcp-enabled = false
-skills-enabled = true
+assets-enabled = true
+hooks-enabled = false
 max-parallel-runs = 2
 
 # Example MCP server (stdio). Enable mcp-enabled and uncomment:

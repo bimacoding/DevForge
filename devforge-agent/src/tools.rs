@@ -220,6 +220,22 @@ pub fn ask_tools() -> Value {
                     }
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_agent_assets",
+                "description": "List the Skills, MCPs, Subagents, Rules, Commands and Hooks available to this agent, including their scope and source path.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "description": "Optional filter: skills, mcps, subagents, rules, commands or hooks."
+                        }
+                    }
+                }
+            }
         }
     ])
 }
@@ -303,9 +319,11 @@ pub fn tools_for_mode(mode: crate::mode::AgentMode) -> Value {
 
 pub fn tool_permission(name: &str) -> PermissionLevel {
     match name {
-        "read_file" | "list_directory" | "search_code" | "get_project_structure" => {
-            PermissionLevel::ReadOnly
-        }
+        "read_file"
+        | "list_directory"
+        | "search_code"
+        | "get_project_structure"
+        | "list_agent_assets" => PermissionLevel::ReadOnly,
         "write_file" | "str_replace" | "create_directory" => {
             PermissionLevel::Confirm
         }
@@ -357,6 +375,16 @@ pub fn execute_tool(ctx: &ToolContext<'_>, call: &ToolCall) -> ToolResult {
                 },
             }
         }
+        "list_agent_assets" => match tool_list_agent_assets(ctx, &call.arguments) {
+            Ok(s) => ToolResult {
+                content: s,
+                is_error: false,
+            },
+            Err(e) => ToolResult {
+                content: e.to_string(),
+                is_error: true,
+            },
+        },
         "write_file" => match tool_write_file(ctx, &call.arguments) {
             Ok(s) => ToolResult {
                 content: s,
@@ -490,6 +518,45 @@ fn tool_project_structure(ctx: &ToolContext<'_>, args: &Value) -> Result<String>
         if count >= max_entries {
             lines.push("… (truncated)".into());
             break;
+        }
+    }
+    Ok(lines.join("\n"))
+}
+
+/// List the agent assets (skills, MCPs, subagents, rules, commands, hooks)
+/// visible from this workspace.
+fn tool_list_agent_assets(ctx: &ToolContext<'_>, args: &Value) -> Result<String> {
+    let filter = args
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .and_then(crate::assets::AssetKind::from_id);
+
+    let kinds: Vec<crate::assets::AssetKind> = match filter {
+        Some(kind) => vec![kind],
+        None => crate::assets::AssetKind::ALL.to_vec(),
+    };
+
+    let mut lines = Vec::new();
+    for kind in kinds {
+        let assets = crate::assets::discover_kind(kind, Some(ctx.backend.root()));
+        lines.push(format!("## {} ({})", kind.label(), assets.len()));
+        if assets.is_empty() {
+            lines.push("  (none)".to_string());
+            continue;
+        }
+        for asset in assets {
+            let state = if asset.enabled { "enabled" } else { "disabled" };
+            lines.push(format!(
+                "  - {} [{} · {}] {}",
+                asset.name,
+                asset.scope.label().to_ascii_lowercase(),
+                state,
+                asset.path.display()
+            ));
+            let description = asset.description.trim();
+            if !description.is_empty() {
+                lines.push(format!("      {description}"));
+            }
         }
     }
     Ok(lines.join("\n"))

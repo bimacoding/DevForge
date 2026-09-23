@@ -27,7 +27,7 @@ use crate::{
         location::EditorLocation,
     },
     id::{
-        DiffEditorId, EditorTabId, KeymapId, SettingsId, SplitId,
+        AgentAssetsId, DiffEditorId, EditorTabId, KeymapId, SettingsId, SplitId,
         ThemeColorSettingsId, VoltViewId,
     },
     main_split::{Editors, MainSplitData},
@@ -40,6 +40,7 @@ pub enum EditorTabChildInfo {
     Editor(EditorInfo),
     DiffEditor(DiffEditorInfo),
     Settings,
+    AgentAssets,
     ThemeColorSettings,
     Keymap,
     Volt(VoltID),
@@ -62,6 +63,9 @@ impl EditorTabChildInfo {
             }
             EditorTabChildInfo::Settings => {
                 EditorTabChild::Settings(SettingsId::next())
+            }
+            EditorTabChildInfo::AgentAssets => {
+                EditorTabChild::AgentAssets(AgentAssetsId::next())
             }
             EditorTabChildInfo::ThemeColorSettings => {
                 EditorTabChild::ThemeColorSettings(ThemeColorSettingsId::next())
@@ -128,6 +132,7 @@ pub enum EditorTabChildSource {
     DiffEditor { left: Rc<Doc>, right: Rc<Doc> },
     NewFileEditor,
     Settings,
+    AgentAssets,
     ThemeColorSettings,
     Keymap,
     Volt(VoltID),
@@ -138,6 +143,7 @@ pub enum EditorTabChild {
     Editor(EditorId),
     DiffEditor(DiffEditorId),
     Settings(SettingsId),
+    AgentAssets(AgentAssetsId),
     ThemeColorSettings(ThemeColorSettingsId),
     Keymap(KeymapId),
     Volt(VoltViewId, VoltID),
@@ -159,6 +165,7 @@ impl EditorTabChild {
             EditorTabChild::Editor(id) => id.to_raw(),
             EditorTabChild::DiffEditor(id) => id.to_raw(),
             EditorTabChild::Settings(id) => id.to_raw(),
+            EditorTabChild::AgentAssets(id) => id.to_raw(),
             EditorTabChild::ThemeColorSettings(id) => id.to_raw(),
             EditorTabChild::Keymap(id) => id.to_raw(),
             EditorTabChild::Volt(id, _) => id.to_raw(),
@@ -190,6 +197,7 @@ impl EditorTabChild {
                 EditorTabChildInfo::DiffEditor(diff_editor_data.diff_editor_info())
             }
             EditorTabChild::Settings(_) => EditorTabChildInfo::Settings,
+            EditorTabChild::AgentAssets(_) => EditorTabChildInfo::AgentAssets,
             EditorTabChild::ThemeColorSettings(_) => {
                 EditorTabChildInfo::ThemeColorSettings
             }
@@ -347,6 +355,17 @@ impl EditorTabChild {
                     icon: config.ui_svg(LapceIcons::SETTINGS),
                     color: Some(config.color(LapceColor::LAPCE_ICON_ACTIVE)),
                     name: "Settings".to_string(),
+                    path: None,
+                    confirmed: None,
+                    is_pristine: true,
+                }
+            }),
+            EditorTabChild::AgentAssets(_) => create_memo(move |_| {
+                let config = config.get();
+                EditorTabChildViewInfo {
+                    icon: config.ui_svg(LapceIcons::AI_SPARKLE),
+                    color: Some(config.color(LapceColor::LAPCE_ICON_ACTIVE)),
+                    name: "Agent Assets".to_string(),
                     path: None,
                     confirmed: None,
                     is_pristine: true,

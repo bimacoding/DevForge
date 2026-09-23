@@ -1400,6 +1400,10 @@ fn editor_tab_content(
             EditorTabChild::Settings(_) => {
                 settings_view(plugin.installed, editors, common).into_any()
             }
+            EditorTabChild::AgentAssets(_) => {
+                crate::agent_assets_view::agent_assets_view(editors, common)
+                    .into_any()
+            }
             EditorTabChild::ThemeColorSettings(_) => {
                 theme_color_settings_view(editors, common).into_any()
             }

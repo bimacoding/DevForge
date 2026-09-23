@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "cargo",
+        "args": ["fmt", "--", "--check"],
+        "description": "Fail the run when an edit leaves formatting drift"
+      }
+    ],
+    "afterAgentRun": [
+      {
+        "command": "cargo",
+        "args": ["test", "-p", "devforge-agent", "--lib"],
+        "description": "Smoke-test the agent crate after every completed run"
+      }
+    ]
+  }
+}

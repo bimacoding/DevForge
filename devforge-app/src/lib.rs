@@ -1,4 +1,5 @@
 pub mod about;
+pub mod agent_assets_view;
 pub mod ai;
 pub mod ai_providers;
 pub mod alert;

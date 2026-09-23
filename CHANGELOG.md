@@ -4,6 +4,13 @@
 
 ### Features/Changes
 
+- Add **Agent Assets**: manage, create, import and delete Skills, MCPs, Subagents, Rules, Commands and Hooks from a new settings page (`Settings ▸ Open Agent Assets`, or the ✦ button in the AI composer).
+- Discover assets from `.devforge` and `.cursor` roots (project and user scope), including Cursor-style folder skills (`skills/<name>/SKILL.md`).
+- Inject enabled Skills, Subagents and Rules into the agent system prompt, and merge MCP JSON assets into the MCP hub.
+- Add a read-only `list_agent_assets` tool so the agent can introspect installed assets.
+- Run lifecycle hooks (`afterFileEdit`, `afterAgentRun`) from `hooks.json` when `ai.hooks-enabled = true`; each hook has a 60s timeout and a failing hook never aborts the run. Toggle it from the **Run hooks** switch on the Agent Assets toolbar.
+- Document the asset formats and ship ready-to-use examples in `defaults/agent-assets/` ([docs/agent-assets.md](docs/agent-assets.md)).
+
 ### Bug Fixes
 
 ## 0.4.6

@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ai_providers::{self, model_picker_list, provider_preset},
-    command::{CommandExecuted, CommandKind},
+    command::{CommandExecuted, CommandKind, LapceWorkbenchCommand},
     editor::EditorData,
     keypress::{KeyPressFocus, condition::Condition},
     main_split::Editors,
@@ -660,6 +660,14 @@ impl AiData {
     pub fn clear_active_chat(&self) {
         self.messages.set(Vector::new());
         self.persist_all();
+    }
+
+    /// Open the Agent Assets page (Skills, MCPs, Subagents, Rules, …).
+    pub fn open_agent_assets(&self) {
+        self.common
+            .workbench_command
+            .send(LapceWorkbenchCommand::OpenAgentAssets);
+        self.status.set("Opened Agent Assets".into());
     }
 
     /// Re-send the last user prompt in this conversation.
@@ -1544,7 +1552,7 @@ fn run_ai_ask(
     };
 
     let mcp = if ai_cfg.mcp_enabled {
-        let specs: Vec<McpServerSpec> = ai_cfg
+        let mut specs: Vec<McpServerSpec> = ai_cfg
             .mcp_servers
             .iter()
             .filter(|s| s.enabled && !s.command.is_empty())
@@ -1554,6 +1562,13 @@ fn run_ai_ask(
                 args: s.args.clone(),
             })
             .collect();
+        // Merge servers installed through the Agent Assets page.
+        for (_, spec) in devforge_agent::mcp_asset_specs(Some(root.as_path())) {
+            if specs.iter().any(|s| s.name == spec.name) {
+                continue;
+            }
+            specs.push(spec);
+        }
         if specs.is_empty() {
             None
         } else {
@@ -1604,7 +1619,8 @@ fn run_ai_ask(
         max_iterations: ai_cfg.max_iterations.min(ai_cfg.tool_call_limit).max(1),
         cancel: cancel.clone(),
         require_tool_approval: ai_cfg.require_tool_approval,
-        skills_enabled: ai_cfg.skills_enabled,
+        assets_enabled: ai_cfg.assets_enabled,
+        hooks_enabled: ai_cfg.hooks_enabled,
         mcp,
     };
 

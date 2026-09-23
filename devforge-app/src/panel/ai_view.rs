@@ -1135,6 +1135,20 @@ fn composer_toolbar(
         )
     };
 
+    let manage_btn = {
+        let ai_a = ai.clone();
+        icon_button(
+            || LapceIcons::AI_SPARKLE,
+            move || {
+                ai_a.open_agent_assets();
+            },
+            || false,
+            || false,
+            || "Manage Skills, MCPs, Subagents, Rules, Commands, Hooks",
+            config,
+        )
+    };
+
     let mic_btn = {
         let ai_s = ai.clone();
         icon_button(
@@ -1195,7 +1209,7 @@ fn composer_toolbar(
         })
     };
 
-    let right = stack((attach_btn, mic_btn, send_or_stop))
+    let right = stack((attach_btn, manage_btn, mic_btn, send_or_stop))
         .style(|s| s.items_center().gap(2.0).padding_right(6.0));
 
     stack((left, empty().style(|s| s.flex_grow(1.0)), right)).style(|s| {
