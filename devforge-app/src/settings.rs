@@ -746,7 +746,6 @@ pub fn settings_view(
 
     let workbench_command = common.workbench_command;
     let settings_header = {
-        let workbench_command = workbench_command;
         stack((
             stack((
                 label(|| "Settings".to_string()).style(move |s| {
@@ -763,7 +762,6 @@ pub fn settings_view(
             .style(|s| s.flex_col().items_start().flex_grow(1.0).min_width(0.0)),
             stack((
                 settings_quick_action(config, LapceIcons::FILE, "Open File", {
-                    let workbench_command = workbench_command;
                     move || {
                         workbench_command
                             .send(LapceWorkbenchCommand::OpenSettingsFile);
@@ -774,7 +772,6 @@ pub fn settings_view(
                     LapceIcons::SYMBOL_COLOR,
                     "Theme Colors",
                     {
-                        let workbench_command = workbench_command;
                         move || {
                             workbench_command
                                 .send(LapceWorkbenchCommand::OpenThemeColorSettings);
@@ -782,7 +779,6 @@ pub fn settings_view(
                     },
                 ),
                 settings_quick_action(config, LapceIcons::KEYBOARD, "Keyboard", {
-                    let workbench_command = workbench_command;
                     move || {
                         workbench_command
                             .send(LapceWorkbenchCommand::OpenKeyboardShortcuts);

@@ -49,7 +49,6 @@ pub fn welcome_view(window_tab_data: Rc<WindowTabData>) -> impl View {
                     "Open Folder",
                     "Open a local folder as workspace",
                     {
-                        let workbench_command = workbench_command;
                         move || {
                             workbench_command
                                 .send(LapceWorkbenchCommand::OpenFolder);
@@ -62,7 +61,6 @@ pub fn welcome_view(window_tab_data: Rc<WindowTabData>) -> impl View {
                     "Open Recent Workspace",
                     "Pick from recently opened workspaces",
                     {
-                        let workbench_command = workbench_command;
                         move || {
                             workbench_command
                                 .send(LapceWorkbenchCommand::OpenWorkspace);
@@ -75,7 +73,6 @@ pub fn welcome_view(window_tab_data: Rc<WindowTabData>) -> impl View {
                     "New Project",
                     "Create or select a folder for a new project",
                     {
-                        let workbench_command = workbench_command;
                         move || {
                             workbench_command
                                 .send(LapceWorkbenchCommand::NewProject);
@@ -88,7 +85,6 @@ pub fn welcome_view(window_tab_data: Rc<WindowTabData>) -> impl View {
                     "Clone Repository",
                     "Clone a git repository and open it",
                     {
-                        let workbench_command = workbench_command;
                         move || {
                             workbench_command
                                 .send(LapceWorkbenchCommand::CloneRepository);
@@ -101,7 +97,6 @@ pub fn welcome_view(window_tab_data: Rc<WindowTabData>) -> impl View {
                     "Remote SSH",
                     "Connect using hosts from ~/.ssh/config",
                     {
-                        let workbench_command = workbench_command;
                         move || {
                             workbench_command
                                 .send(LapceWorkbenchCommand::ManageSshHosts);
@@ -114,7 +109,6 @@ pub fn welcome_view(window_tab_data: Rc<WindowTabData>) -> impl View {
                     "New File",
                     "Start with an untitled buffer",
                     {
-                        let workbench_command = workbench_command;
                         move || {
                             workbench_command.send(LapceWorkbenchCommand::NewFile);
                         }
@@ -126,7 +120,6 @@ pub fn welcome_view(window_tab_data: Rc<WindowTabData>) -> impl View {
                     "New Window",
                     "Open another DevForge window",
                     {
-                        let workbench_command = workbench_command;
                         move || {
                             workbench_command.send(LapceWorkbenchCommand::NewWindow);
                         }

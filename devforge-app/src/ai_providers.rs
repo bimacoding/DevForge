@@ -185,7 +185,7 @@ pub fn model_picker_list(provider: &str, extra_models: &str) -> Vec<String> {
         }
     }
 
-    for part in extra_models.split(|c| c == ',' || c == '\n' || c == ';') {
+    for part in extra_models.split([',', '\n', ';']) {
         let m = part.trim();
         if m.is_empty() {
             continue;

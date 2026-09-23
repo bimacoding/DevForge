@@ -1457,6 +1457,11 @@ fn prepare_attachments(attachments: &[AiAttachment]) -> (String, Vec<String>) {
     (text_ctx, images)
 }
 
+// The ask pipeline threads workspace, provider config, agent mode, prompt,
+// attachments, history, cancellation and the event sink. All are distinct
+// concerns owned by the spawning thread; a parameter struct would just relocate
+// the same fields without removing the coupling.
+#[allow(clippy::too_many_arguments)]
 fn run_ai_ask(
     workspace: Arc<LapceWorkspace>,
     ai_cfg: crate::config::ai::AiConfig,

@@ -317,6 +317,11 @@ fn middle(
     .debug_name("Middle of Top Bar")
 }
 
+// The title bar's right section owns several independent visual concerns
+// (layout data, commands, release badge, window state, config). Bundling them
+// into a struct would only move the same fields one level down at the single
+// call site, so the flat signature is kept deliberately.
+#[allow(clippy::too_many_arguments)]
 fn right(
     window_tab_data: Rc<WindowTabData>,
     window_command: Listener<WindowCommand>,
@@ -357,7 +362,7 @@ fn right(
             move || {
                 workbench_command.send(LapceWorkbenchCommand::ToggleAiVisual);
             },
-            move || ai_visible(),
+            ai_visible,
             || false,
             || "Toggle AI Agent",
             config,
