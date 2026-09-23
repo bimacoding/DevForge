@@ -191,6 +191,17 @@ pub struct AiChatMessage {
     pub step: Option<AiAgentStep>,
 }
 
+impl AiChatMessage {
+    pub fn new(role: AiChatRole, content: String) -> Self {
+        Self {
+            role,
+            content,
+            attachments: Vec::new(),
+            step: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AiConversation {
     pub id: String,
@@ -608,12 +619,24 @@ impl AiData {
             }));
         }
         menu = menu.separator();
+        let ai_clear = self.clone();
+        menu = menu.entry(MenuItem::new("Clear current chat").action(move || {
+            ai_clear.clear_active_chat();
+        }));
         let ai_del = self.clone();
         let active_del = active.clone();
         menu = menu.entry(MenuItem::new("Delete current chat").action(move || {
             ai_del.delete_conversation(&active_del);
         }));
         show_context_menu(menu, None);
+    }
+
+    /// Title of the active conversation, or a placeholder when it has none yet.
+    pub fn active_title(&self) -> String {
+        let id = self.active_id.get_untracked();
+        let list: Vec<AiConversation> =
+            self.conversations.get_untracked().into_iter().collect();
+        active_title_from(&list, &id)
     }
 
     /// Files touched by Agent steps in the active conversation, in order.
@@ -1244,6 +1267,67 @@ fn derive_title(msgs: &[AiChatMessage]) -> String {
             if s.is_empty() { "New chat".into() } else { s }
         })
         .unwrap_or_else(|| "New chat".into())
+}
+
+/// Title to show for the active chat in the header dropdown.
+fn active_title_from(list: &[AiConversation], active_id: &str) -> String {
+    list.iter()
+        .find(|c| c.id == active_id)
+        .map(|c| c.title.clone())
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| "New chat".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conversation(id: &str, title: &str) -> AiConversation {
+        AiConversation {
+            id: id.into(),
+            title: title.into(),
+            mode: "agent".into(),
+            model: "Auto".into(),
+            messages: Vec::new(),
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn active_title_prefers_the_active_conversation() {
+        let list = vec![
+            conversation("chat-1", "Fix the parser"),
+            conversation("chat-2", "Add tests"),
+        ];
+        assert_eq!(active_title_from(&list, "chat-2"), "Add tests");
+    }
+
+    #[test]
+    fn active_title_falls_back_when_missing_or_blank() {
+        let list = vec![conversation("chat-1", "   ")];
+        assert_eq!(active_title_from(&list, "chat-1"), "New chat");
+        assert_eq!(active_title_from(&list, "chat-9"), "New chat");
+        assert_eq!(active_title_from(&[], "chat-9"), "New chat");
+    }
+
+    #[test]
+    fn derive_title_uses_the_first_user_line_and_truncates() {
+        let msgs = vec![
+            AiChatMessage::new(AiChatRole::Activity, "thinking".into()),
+            AiChatMessage::new(
+                AiChatRole::User,
+                format!("{}\nsecond line", "x".repeat(60)),
+            ),
+        ];
+        let title = derive_title(&msgs);
+        assert!(title.ends_with('…'));
+        assert_eq!(title.chars().count(), 43);
+    }
+
+    #[test]
+    fn derive_title_defaults_without_user_messages() {
+        assert_eq!(derive_title(&[]), "New chat");
+    }
 }
 
 fn citation_label(path: &Path, workspace: Option<&Path>) -> String {

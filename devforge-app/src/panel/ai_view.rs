@@ -1,15 +1,12 @@
 //! Cursor-style AI chat panel: bubble transcript, observable agent/MCP steps,
-//! chat history tabs, mode/model pickers, and a compact composer.
+//! a compact history header, mode/model pickers, and a compact composer.
 
 use std::{rc::Rc, sync::Arc};
 
 use floem::{
     AnyView, IntoView, View,
     event::EventListener,
-    peniko::{
-        Color,
-        kurbo::{Point, Size},
-    },
+    peniko::kurbo::{Point, Size},
     reactive::{
         ReadSignal, RwSignal, SignalGet, SignalUpdate, SignalWith, create_rw_signal,
     },
@@ -70,7 +67,7 @@ fn ai_panel_content(window_tab_data: Rc<WindowTabData>) -> impl View {
     });
 
     stack((
-        conversation_tabs(ai.clone()),
+        chat_header(ai.clone()),
         messages_view,
         touched_files_footer(ai.clone(), window_tab_data.clone()),
         bottom,
@@ -83,82 +80,57 @@ fn ai_panel_content(window_tab_data: Rc<WindowTabData>) -> impl View {
     })
 }
 
-/// Tab strip with chat history + "new chat" + history menu (Cursor-style).
-fn conversation_tabs(ai: AiData) -> impl View {
+/// Compact chat header (Cursor-style): active chat title doubling as the
+/// history dropdown, plus new-chat and history actions.
+fn chat_header(ai: AiData) -> impl View {
     let config = ai.common.config;
     let ai_new = ai.clone();
     let ai_hist = ai.clone();
-    let tabs = scroll({
-        dyn_stack(
-            move || {
-                ai.conversations
-                    .get()
-                    .into_iter()
-                    .map(|c| (c.id, c.title))
-                    .collect::<Vec<_>>()
+    let ai_title = ai.clone();
+
+    let title_btn = stack((
+        svg(move || config.get().ui_svg(LapceIcons::AI_SPARKLE)).style(move |s| {
+            let config = config.get();
+            let size = (config.ui.icon_size() as f32) * 0.85;
+            s.size(size, size)
+                .color(config.color(LapceColor::EDITOR_DIM))
+        }),
+        label(move || ai_title.active_title()).style(move |s| {
+            let config = config.get();
+            s.font_size((config.ui.font_size() as f32) * 0.9)
+                .color(config.color(LapceColor::EDITOR_FOREGROUND))
+                .max_width(190.0)
+                .text_ellipsis()
+        }),
+        svg(move || config.get().ui_svg(LapceIcons::DROPDOWN_ARROW)).style(
+            move |s| {
+                let config = config.get();
+                let size = (config.ui.icon_size() as f32) * 0.75;
+                s.size(size, size)
+                    .color(config.color(LapceColor::EDITOR_DIM))
             },
-            |(id, _)| id.clone(),
-            {
-                let ai = ai.clone();
-                move |(id, title): (String, String)| {
-                    let ai_sel = ai.clone();
-                    let ai_del = ai.clone();
-                    let id_sel = id.clone();
-                    let id_active = id.clone();
-                    let id_del = id.clone();
-                    stack((
-                        label(move || title.clone())
-                            .on_click_stop({
-                                let ai = ai_sel.clone();
-                                move |_| {
-                                    ai.select_conversation(&id_sel);
-                                }
-                            })
-                            .style(move |s| {
-                                let config = config.get();
-                                let active = ai.active_id.get() == id_active;
-                                s.padding_horiz(10.0)
-                                    .padding_vert(5.0)
-                                    .font_size((config.ui.font_size() as f32) * 0.9)
-                                    .color(config.color(if active {
-                                        LapceColor::EDITOR_FOREGROUND
-                                    } else {
-                                        LapceColor::EDITOR_DIM
-                                    }))
-                                    .background(if active {
-                                        config.color(
-                                            LapceColor::PANEL_CURRENT_BACKGROUND,
-                                        )
-                                    } else {
-                                        Color::TRANSPARENT
-                                    })
-                                    .border_radius(6.0)
-                                    .cursor(CursorStyle::Pointer)
-                                    .max_width(140.0)
-                                    .text_ellipsis()
-                            }),
-                        clickable_icon(
-                            || LapceIcons::CLOSE,
-                            {
-                                let ai = ai_del;
-                                move || {
-                                    ai.delete_conversation(&id_del);
-                                }
-                            },
-                            || false,
-                            || false,
-                            || "Close chat",
-                            config,
-                        ),
-                    ))
-                    .style(|s| s.items_center().gap(2.0))
-                }
-            },
-        )
-        .style(|s| s.flex_row().items_center().gap(4.0).padding_horiz(4.0))
+        ),
+    ))
+    .on_click_stop({
+        let ai_hist = ai_hist.clone();
+        move |_| {
+            ai_hist.show_history_menu();
+        }
     })
-    .scroll_style(|s| s.hide_bars(true))
-    .style(|s| s.flex_grow(1.0).min_width(0.0).height(34.0));
+    .style(move |s| {
+        let config = config.get();
+        s.items_center()
+            .gap(6.0)
+            .flex_grow(1.0)
+            .min_width(0.0)
+            .padding_horiz(8.0)
+            .padding_vert(4.0)
+            .border_radius(8.0)
+            .cursor(CursorStyle::Pointer)
+            .hover(|s| {
+                s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+            })
+    });
 
     let new_btn = clickable_icon(
         || LapceIcons::ADD,
@@ -182,15 +154,15 @@ fn conversation_tabs(ai: AiData) -> impl View {
         config,
     );
 
-    stack((tabs, new_btn, history_btn)).style(move |s| {
+    stack((title_btn, new_btn, history_btn)).style(move |s| {
         let config = config.get();
         s.width_pct(100.0)
             .flex_grow(0.0)
             .flex_shrink(0.0)
             .padding_horiz(6.0)
-            .padding_vert(4.0)
+            .padding_vert(3.0)
             .items_center()
-            .gap(4.0)
+            .gap(2.0)
             .border_bottom(1.0)
             .border_color(config.color(LapceColor::LAPCE_BORDER))
     })
