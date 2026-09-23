@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, rc::Rc, sync::Arc, time::Duration};
 use devforge_core::{buffer::rope_text::RopeText, mode::Mode};
 use devforge_rpc::plugin::VoltID;
 use floem::{
-    IntoView, View,
+    AnyView, IntoView, View,
     action::{TimerToken, add_overlay, exec_after, remove_overlay},
     event::EventListener,
     keyboard::Modifiers,
@@ -12,21 +12,22 @@ use floem::{
         Memo, ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith,
         create_effect, create_memo, create_rw_signal,
     },
-    style::CursorStyle,
+    style::{CursorStyle, MarginLeft, Transition},
     text::{Attrs, AttrsList, FamilyOwned, TextLayout},
     views::{
         Decorators, VirtualVector, container, dyn_stack, empty, label,
         scroll::{PropagatePointerWheel, scroll},
-        stack, svg, text, virtual_stack,
+        stack, stack_from_iter, svg, text, virtual_stack,
     },
 };
 use indexmap::IndexMap;
 use inflector::Inflector;
 use lapce_xi_rope::Rope;
 use serde::Serialize;
-use serde_json::Value;
+use std::time::Duration as StdDuration;
 
 use crate::{
+    ai_providers::McpServerConfig,
     command::{CommandExecuted, LapceWorkbenchCommand},
     config::{
         DropdownInfo, LapceConfig, ai::AiConfig, color::LapceColor,
@@ -66,7 +67,7 @@ fn section_icon(kind: &str) -> &'static str {
 }
 
 fn friendly_field_name(field: &str) -> String {
-    field.replace('_', " ").replace('-', " ").to_title_case()
+    field.replace(['_', '-'], " ").to_title_case()
 }
 
 #[derive(Debug, Clone)]
@@ -102,15 +103,158 @@ struct SettingsItem {
     name: String,
     field: String,
     description: String,
-    /// Shown under section headers (friendly one-liner).
-    section_blurb: String,
     filter_text: String,
     value: SettingsValue,
-    serde_value: Value,
+}
+
+/// A visual group of settings rendered as a single card with row items,
+/// mirroring the Cursor IDE settings layout (title, subtitle, then rows).
+#[derive(Clone, Debug)]
+struct SettingsSection {
+    kind: String,
+    title: String,
+    blurb: String,
     pos: RwSignal<Point>,
     size: RwSignal<Size>,
-    // this is only the header that give an visual separation between different type of settings
-    header: bool,
+    fields: im::Vector<SettingsItem>,
+    custom: im::Vector<SettingsCustom>,
+    /// Extra lowercase text matched by the search box for custom cards.
+    search_text: String,
+}
+
+/// Dynamic (add/remove) list editors that are not expressible as a single
+/// scalar field, rendered as extra cards inside a section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsCustom {
+    ExtraModels,
+    McpServers,
+}
+
+/// Split a comma/newline/semicolon separated list, dropping blanks.
+fn parse_list(value: &str) -> Vec<String> {
+    value
+        .split([',', '\n', ';'])
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.to_string())
+        .collect()
+}
+
+/// Persist a list of model ids as the comma separated `ai.extra-models` field.
+fn persist_extra_models(models: &[(u64, String)]) {
+    let joined = models
+        .iter()
+        .map(|(_, m)| m.trim())
+        .filter(|m| !m.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if let Ok(value) =
+        serde::Serialize::serialize(&joined, toml_edit::ser::ValueSerializer::new())
+    {
+        LapceConfig::update_file("ai", "extra-models", value);
+    }
+}
+
+impl SettingsSection {
+    fn render_heading(&self, config: ReadSignal<Arc<LapceConfig>>) -> AnyView {
+        let title = self.title.clone();
+        let blurb = self.blurb.clone();
+        let blurb_empty = blurb.is_empty();
+        let pos = self.pos;
+        let size = self.size;
+        stack((
+            label(move || title.clone()).style(move |s| {
+                s.font_bold()
+                    .font_size(config.get().ui.font_size() as f32 + 3.0)
+                    .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
+            }),
+            label(move || blurb.clone()).style(move |s| {
+                s.margin_top(4.0)
+                    .margin_bottom(2.0)
+                    .color(config.get().color(LapceColor::EDITOR_DIM))
+                    .apply_if(blurb_empty, |s| s.hide())
+            }),
+        ))
+        .on_resize(move |rect| {
+            pos.set(rect.origin());
+            let old_size = size.get_untracked();
+            let new_size = rect.size();
+            if old_size != new_size {
+                size.set(new_size);
+            }
+        })
+        .style(move |s| {
+            s.flex_col()
+                .width_pct(100.0)
+                .padding_top(16.0)
+                .padding_bottom(8.0)
+                .border_bottom(1.0)
+                .border_color(config.get().color(LapceColor::LAPCE_BORDER))
+        })
+        .into_any()
+    }
+
+    fn card_style(config: ReadSignal<Arc<LapceConfig>>) -> floem::style::Style {
+        let config = config.get();
+        floem::style::Style::new()
+            .flex_col()
+            .width_pct(100.0)
+            .border(1.0)
+            .border_radius(8.0)
+            .border_color(config.color(LapceColor::LAPCE_BORDER))
+            .background(config.color(LapceColor::PANEL_BACKGROUND))
+    }
+
+    fn render(
+        &self,
+        editors: Editors,
+        settings_data: SettingsData,
+        config: ReadSignal<Arc<LapceConfig>>,
+    ) -> AnyView {
+        let fields: Vec<SettingsItem> = self.fields.iter().cloned().collect();
+
+        let card = container(
+            stack_from_iter(fields.into_iter().enumerate().map(|(i, item)| {
+                let data = settings_data.clone();
+                container(settings_row_view(editors, data, item))
+                    .style(move |s| {
+                        s.width_pct(100.0).apply_if(i > 0, |s| {
+                            s.border_top(1.0).border_color(
+                                config.get().color(LapceColor::LAPCE_BORDER),
+                            )
+                        })
+                    })
+                    .into_any()
+            }))
+            .style(|s| s.flex_col().width_pct(100.0)),
+        )
+        .style(move |_s| Self::card_style(config));
+
+        let extras: Vec<AnyView> = self
+            .custom
+            .iter()
+            .map(|custom| match custom {
+                SettingsCustom::ExtraModels => {
+                    extra_models_editor(editors, settings_data.clone(), config)
+                }
+                SettingsCustom::McpServers => {
+                    mcp_servers_editor(editors, settings_data.clone(), config)
+                }
+            })
+            .collect();
+
+        let mut children: Vec<AnyView> =
+            vec![self.render_heading(config), card.into_any()];
+        children.extend(extras);
+
+        let has_extra = !self.custom.is_empty();
+        stack_from_iter(children)
+            .style(move |s| {
+                let s = s.flex_col().width_pct(100.0);
+                if has_extra { s.row_gap(12.0) } else { s }
+            })
+            .into_any()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +264,7 @@ struct SettingsData {
     plugin_items: RwSignal<im::Vector<SettingsItem>>,
     plugin_kinds: RwSignal<im::Vector<(String, RwSignal<Point>)>>,
     filtered_items: RwSignal<im::Vector<SettingsItem>>,
+    sections: RwSignal<im::Vector<SettingsSection>>,
     common: Rc<CommonData>,
 }
 
@@ -179,6 +324,7 @@ impl SettingsData {
         let plugin_items = cx.create_rw_signal(im::Vector::new());
         let plugin_kinds = cx.create_rw_signal(im::Vector::new());
         let filtered_items = cx.create_rw_signal(im::Vector::new());
+        let sections = cx.create_rw_signal(im::Vector::new());
         let items = cx.create_rw_signal(im::Vector::new());
         let kinds = cx.create_rw_signal(im::Vector::new());
         cx.create_effect(move |_| {
@@ -186,6 +332,7 @@ impl SettingsData {
 
             let mut data_items = im::Vector::new();
             let mut data_kinds = im::Vector::new();
+            let mut data_sections = im::Vector::new();
             let mut item_height_accum = 0.0;
             for (kind, fields, descs, mut settings_map) in [
                 (
@@ -220,34 +367,18 @@ impl SettingsData {
                 ),
             ] {
                 let pos = cx.create_rw_signal(Point::new(0.0, item_height_accum));
-                data_items.push_back(SettingsItem {
-                    kind: kind.to_string(),
-                    name: "".to_string(),
-                    field: "".to_string(),
-                    filter_text: "".to_string(),
-                    description: "".to_string(),
-                    section_blurb: section_blurb(kind).to_string(),
-                    value: SettingsValue::Empty,
-                    serde_value: Value::Null,
-                    pos,
-                    size: cx.create_rw_signal(Size::ZERO),
-                    header: true,
-                });
                 data_kinds.push_back((kind.to_string(), pos));
+                let mut section_fields = im::Vector::new();
                 for (name, desc) in fields.iter().zip(descs.iter()) {
                     let field = name.replace('_', "-");
 
-                    let (value, serde_value) = if let Some(dropdown) =
+                    let value = if let Some(dropdown) =
                         config.get_dropdown_info(&kind.to_lowercase(), &field)
                     {
-                        let index = dropdown.active_index;
-                        (
-                            SettingsValue::Dropdown(dropdown),
-                            Value::Number(index.into()),
-                        )
+                        SettingsValue::Dropdown(dropdown)
                     } else {
                         let value = settings_map.remove(&field).unwrap();
-                        (SettingsValue::from(value.clone()), value)
+                        SettingsValue::from(value)
                     };
 
                     let display_name = friendly_field_name(name);
@@ -256,21 +387,40 @@ impl SettingsData {
                         format!("{kind_lower} {display_name} {desc}").to_lowercase();
                     let filter_text =
                         format!("{filter_text}{}", filter_text.replace(' ', ""));
-                    data_items.push_back(SettingsItem {
+                    let item = SettingsItem {
                         kind: kind_lower,
                         name: display_name,
                         field,
                         filter_text,
                         description: desc.to_string(),
-                        section_blurb: String::new(),
                         value,
-                        pos: cx.create_rw_signal(Point::ZERO),
-                        size: cx.create_rw_signal(Size::ZERO),
-                        serde_value,
-                        header: false,
-                    });
+                    };
+                    section_fields.push_back(item.clone());
+                    data_items.push_back(item);
                     item_height_accum += 50.0;
                 }
+                data_sections.push_back(SettingsSection {
+                    kind: kind.to_string(),
+                    title: kind.to_string(),
+                    blurb: section_blurb(kind).to_string(),
+                    pos,
+                    size: cx.create_rw_signal(Size::ZERO),
+                    fields: section_fields,
+                    custom: if kind == "AI" {
+                        im::Vector::from(vec![
+                            SettingsCustom::ExtraModels,
+                            SettingsCustom::McpServers,
+                        ])
+                    } else {
+                        im::Vector::new()
+                    },
+                    search_text: if kind == "AI" {
+                        "extra models mcp mcp-servers servers model context protocol"
+                            .to_string()
+                    } else {
+                        String::new()
+                    },
+                });
             }
 
             filtered_items.set(data_items.clone());
@@ -279,74 +429,67 @@ impl SettingsData {
             let plugins = installed_plugin.get();
             let mut setting_items = im::Vector::new();
             let mut plugin_kinds_tmp = im::Vector::new();
+            let mut plugin_sections = im::Vector::new();
             for (_, volt) in plugins {
                 let meta = volt.meta.get();
-                let kind = meta.name;
+                let kind = meta.name.clone();
                 let plugin_config = config.plugins.get(&kind);
                 if let Some(config) = meta.config {
                     let pos =
                         cx.create_rw_signal(Point::new(0.0, item_height_accum));
-                    setting_items.push_back(SettingsItem {
-                        kind: meta.display_name.clone(),
-                        name: "".to_string(),
-                        field: "".to_string(),
-                        filter_text: "".to_string(),
-                        description: "".to_string(),
-                        section_blurb: format!(
+                    plugin_kinds_tmp.push_back((meta.display_name.clone(), pos));
+
+                    let mut section_fields = im::Vector::new();
+                    let mut local_items = Vec::new();
+                    for (name, config) in config {
+                        let field = name.clone();
+
+                        let display_name = friendly_field_name(&name);
+                        let desc = config.description;
+                        let filter_text =
+                            format!("{kind} {display_name} {desc}").to_lowercase();
+                        let filter_text =
+                            format!("{filter_text}{}", filter_text.replace(' ', ""));
+
+                        let value = plugin_config
+                            .and_then(|config| config.get(&field).cloned())
+                            .unwrap_or(config.default);
+                        let value = SettingsValue::from(value);
+
+                        let item = SettingsItem {
+                            kind: kind.clone(),
+                            name: display_name,
+                            field,
+                            filter_text,
+                            description: desc.to_string(),
+                            value,
+                        };
+                        local_items.push(item);
+                        item_height_accum += 50.0;
+                    }
+                    local_items.sort_by_key(|i| i.name.clone());
+                    section_fields.extend(local_items.iter().cloned());
+                    setting_items.extend(local_items.into_iter());
+
+                    plugin_sections.push_back(SettingsSection {
+                        kind: meta.name.clone(),
+                        title: meta.display_name.clone(),
+                        blurb: format!(
                             "Settings from the “{}” plugin",
                             meta.display_name
                         ),
-                        value: SettingsValue::Empty,
-                        serde_value: Value::Null,
                         pos,
                         size: cx.create_rw_signal(Size::ZERO),
-                        header: true,
+                        fields: section_fields,
+                        custom: im::Vector::new(),
+                        search_text: String::new(),
                     });
-                    plugin_kinds_tmp.push_back((meta.display_name.clone(), pos));
-
-                    {
-                        let mut local_items = Vec::new();
-                        for (name, config) in config {
-                            let field = name.clone();
-
-                            let display_name = friendly_field_name(&name);
-                            let desc = config.description;
-                            let filter_text =
-                                format!("{kind} {display_name} {desc}")
-                                    .to_lowercase();
-                            let filter_text = format!(
-                                "{filter_text}{}",
-                                filter_text.replace(' ', "")
-                            );
-
-                            let value = plugin_config
-                                .and_then(|config| config.get(&field).cloned())
-                                .unwrap_or(config.default);
-                            let value = SettingsValue::from(value);
-
-                            let item = SettingsItem {
-                                kind: kind.clone(),
-                                name: display_name,
-                                field,
-                                filter_text,
-                                description: desc.to_string(),
-                                section_blurb: String::new(),
-                                value,
-                                pos: cx.create_rw_signal(Point::ZERO),
-                                size: cx.create_rw_signal(Size::ZERO),
-                                serde_value: Value::Null,
-                                header: false,
-                            };
-                            local_items.push(item);
-                            item_height_accum += 50.0;
-                        }
-                        local_items.sort_by_key(|i| i.name.clone());
-                        setting_items.extend(local_items.into_iter());
-                    }
                 }
             }
             plugin_items.set(setting_items);
             plugin_kinds.set(plugin_kinds_tmp);
+            data_sections.extend(plugin_sections);
+            sections.set(data_sections);
             kinds.set(data_kinds);
         });
 
@@ -356,6 +499,7 @@ impl SettingsData {
             plugin_kinds,
             items,
             kinds,
+            sections,
             common,
         }
     }
@@ -380,6 +524,9 @@ pub fn settings_view(
     let items = settings_data.items;
     let kinds = settings_data.kinds;
     let filtered_items_signal = settings_data.filtered_items;
+    let sections_signal = settings_data.sections;
+    let rendered_sections = create_rw_signal(im::Vector::new());
+    let match_count = create_rw_signal(0usize);
     let search_query = create_rw_signal(String::new());
     create_effect(move |_| {
         let doc = doc.get();
@@ -387,27 +534,67 @@ pub fn settings_view(
         search_query.set(pattern.clone());
         let plugin_items = settings_data.plugin_items.get();
         let mut items = items.get();
+
+        // Match each query word independently so "font AI" matches fields that
+        // mention either word, mirroring Cursor's settings search behavior.
+        let queries: im::Vector<String> = pattern
+            .split_whitespace()
+            .filter(|q| !q.is_empty())
+            .map(|q| q.to_string())
+            .collect();
+
         if pattern.is_empty() {
             items.extend(plugin_items);
+            match_count.set(items.len());
             filtered_items_signal.set(items);
+            rendered_sections.set(sections_signal.get_untracked());
             return;
         }
 
-        let mut filtered_items = im::Vector::new();
-        let mut pending_header: Option<SettingsItem> = None;
-        for item in items.iter().cloned().chain(plugin_items.into_iter()) {
-            if item.header {
-                pending_header = Some(item);
-                continue;
-            }
-            if item.filter_text.contains(&pattern) {
-                if let Some(header) = pending_header.take() {
-                    filtered_items.push_back(header);
-                }
-                filtered_items.push_back(item);
+        let mut matched: im::Vector<SettingsItem> = im::Vector::new();
+        for item in items.iter().chain(plugin_items.iter()) {
+            let hay = &item.filter_text;
+            if queries.iter().all(|q| hay.contains(q.as_str())) {
+                matched.push_back(item.clone());
             }
         }
-        filtered_items_signal.set(filtered_items);
+
+        let mut new_sections = im::Vector::new();
+        let mut custom_matches = 0usize;
+        for mut section in sections_signal.get_untracked() {
+            section.fields = section
+                .fields
+                .into_iter()
+                .filter(|item| {
+                    let hay = &item.filter_text;
+                    queries.iter().all(|q| hay.contains(q.as_str()))
+                })
+                .collect();
+            let custom_match = !section.custom.is_empty()
+                && !section.search_text.is_empty()
+                && queries
+                    .iter()
+                    .all(|q| section.search_text.contains(q.as_str()));
+            if custom_match {
+                custom_matches += 1;
+                section.fields = section
+                    .fields
+                    .into_iter()
+                    .chain(
+                        items
+                            .iter()
+                            .filter(|i| i.kind == section.kind.to_lowercase())
+                            .cloned(),
+                    )
+                    .collect();
+            }
+            if !section.fields.is_empty() || custom_match {
+                new_sections.push_back(section);
+            }
+        }
+        match_count.set(matched.len() + custom_matches);
+        filtered_items_signal.set(matched);
+        rendered_sections.set(new_sections);
     });
 
     let ensure_visible = create_rw_signal(Rect::ZERO);
@@ -653,19 +840,13 @@ pub fn settings_view(
                 stack((
                     scroll({
                         dyn_stack(
-                            move || filtered_items_signal.get(),
-                            |item| {
-                                (
-                                    item.kind.clone(),
-                                    item.name.clone(),
-                                    item.serde_value.clone(),
-                                )
-                            },
-                            move |item| {
-                                settings_item_view(
+                            move || rendered_sections.get(),
+                            |section| section.kind.clone(),
+                            move |section| {
+                                section.render(
                                     editors,
                                     view_settings_data.clone(),
-                                    item,
+                                    config,
                                 )
                             },
                         )
@@ -675,7 +856,7 @@ pub fn settings_view(
                                 .padding_bottom(40.0)
                                 .min_width_pct(100.0)
                                 .max_width(720.0)
-                                .row_gap(8.0)
+                                .row_gap(4.0)
                         })
                     })
                     .on_scroll(move |rect| {
@@ -688,20 +869,15 @@ pub fn settings_view(
                     .style(|s| s.absolute().size_pct(100.0, 100.0)),
                     label(move || {
                         let q = search_query.get();
-                        if q.is_empty() {
+                        if q.is_empty() || match_count.get() > 0 {
                             String::new()
-                        } else if filtered_items_signal
-                            .with(|items| items.iter().all(|i| i.header))
-                        {
-                            format!("No settings match “{q}”")
                         } else {
-                            String::new()
+                            format!("No settings match “{q}”")
                         }
                     })
                     .style(move |s| {
-                        let empty = !search_query.get().is_empty()
-                            && filtered_items_signal
-                                .with(|items| items.iter().all(|i| i.header));
+                        let empty =
+                            !search_query.get().is_empty() && match_count.get() == 0;
                         s.absolute()
                             .margin_top(40.0)
                             .margin_left(28.0)
@@ -757,7 +933,9 @@ fn settings_quick_action(
     .on_click_stop(move |_| on_click())
 }
 
-fn settings_item_view(
+/// Cursor-style settings row: label + description on the left, the control on
+/// the right, separated by a subtle divider between consecutive rows.
+fn settings_row_view(
     editors: Editors,
     settings_data: SettingsData,
     item: SettingsItem,
@@ -818,7 +996,6 @@ fn settings_item_view(
                             }
 
                             let value = buffer.with_untracked(|b| b.to_string());
-                            // FIXME: Figure out how to block certain keys in inputs and not hate myself
                             let value = value.trim();
                             let value = match &item_value {
                                 SettingsValue::Float(_) => {
@@ -858,9 +1035,17 @@ fn settings_item_view(
                 text_input_view
                     .keyboard_navigable()
                     .style(move |s| {
-                        s.width(320.0).border(1.0).border_radius(6.0).border_color(
-                            config.get().color(LapceColor::LAPCE_BORDER),
-                        )
+                        s.width(220.0)
+                            .border(1.0)
+                            .border_radius(6.0)
+                            .border_color(
+                                config.get().color(LapceColor::LAPCE_BORDER),
+                            )
+                            .focus(|s| {
+                                s.border_color(
+                                    config.get().color(LapceColor::EDITOR_FOCUS),
+                                )
+                            })
                     })
                     .into_any()
             } else if let SettingsValue::Dropdown(dropdown) = &item.value {
@@ -888,8 +1073,8 @@ fn settings_item_view(
         }
     };
 
-    let bool_toggle = if let Some(is_ticked) = is_ticked {
-        let checked = create_rw_signal(is_ticked);
+    let bool_state: Option<RwSignal<bool>> = is_ticked.map(create_rw_signal);
+    let bool_toggle = if let Some(checked) = bool_state {
         let kind = item.kind.clone();
         let field = item.field.clone();
         create_effect(move |last| {
@@ -905,65 +1090,14 @@ fn settings_item_view(
             }
         });
 
-        stack((
-            checkbox(move || checked.get(), config),
-            label(move || {
-                if checked.get() {
-                    "On".to_string()
-                } else {
-                    "Off".to_string()
-                }
-            })
-            .style(move |s| {
-                s.margin_left(8.0)
-                    .color(config.get().color(LapceColor::EDITOR_DIM))
-            }),
-        ))
-        .style(|s| s.items_center().cursor(CursorStyle::Pointer))
-        .on_click_stop(move |_| {
-            checked.update(|checked| {
-                *checked = !*checked;
-            });
-        })
-        .into_any()
+        container(toggle_switch(move || checked.get(), config))
+            .style(|s| s.items_center())
+            .into_any()
     } else {
         empty().into_any()
     };
 
-    if item.header {
-        let blurb = item.section_blurb.clone();
-        let blurb_empty = blurb.is_empty();
-        return stack((
-            label(move || item.kind.clone()).style(move |s| {
-                s.font_bold()
-                    .font_size(config.get().ui.font_size() as f32 + 3.0)
-                    .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
-            }),
-            label(move || blurb.clone()).style(move |s| {
-                s.margin_top(4.0)
-                    .margin_bottom(4.0)
-                    .color(config.get().color(LapceColor::EDITOR_DIM))
-                    .apply_if(blurb_empty, |s| s.hide())
-            }),
-        ))
-        .on_resize(move |rect| {
-            item.pos.set(rect.origin());
-            let old_size = item.size.get_untracked();
-            let new_size = rect.size();
-            if old_size != new_size {
-                item.size.set(new_size);
-            }
-        })
-        .style(move |s| {
-            s.flex_col()
-                .width_pct(100.0)
-                .padding_top(18.0)
-                .padding_bottom(8.0)
-                .border_bottom(1.0)
-                .border_color(config.get().color(LapceColor::LAPCE_BORDER))
-        })
-        .into_any();
-    }
+    let has_bool = is_ticked.is_some();
 
     stack((
         stack((
@@ -971,41 +1105,40 @@ fn settings_item_view(
                 s.font_bold()
                     .text_ellipsis()
                     .min_width(0.0)
-                    .flex_grow(1.0)
                     .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
             }),
-            bool_toggle,
+            label(move || item.description.clone()).style(move |s| {
+                s.margin_top(3.0)
+                    .min_width(0.0)
+                    .line_height(1.4)
+                    .font_size((config.get().ui.font_size() as f32 - 1.0).max(11.0))
+                    .color(config.get().color(LapceColor::EDITOR_DIM))
+            }),
         ))
-        .style(|s| s.width_pct(100.0).items_center().col_gap(12.0)),
-        label(move || item.description.clone()).style(move |s| {
-            s.margin_top(4.0)
-                .min_width(0.0)
-                .max_width_pct(100.0)
-                .line_height(1.5)
-                .font_size((config.get().ui.font_size() as f32 - 1.0).max(11.0))
-                .color(config.get().color(LapceColor::EDITOR_DIM))
-        }),
-        view().style(move |s| {
-            s.margin_top(10.0)
-                .apply_if(is_ticked.is_some(), |s| s.hide())
-        }),
+        .style(|s| s.flex_col().min_width(0.0).flex_grow(1.0).flex_basis(0.0)),
+        container(bool_toggle).style(move |s| s.apply_if(!has_bool, |s| s.hide())),
+        container(view())
+            .style(move |s| s.apply_if(has_bool, |s| s.hide()).flex_shrink(0.0)),
     ))
-    .on_resize(move |rect| {
-        let old_size = item.size.get_untracked();
-        let new_size = rect.size();
-        if old_size != new_size {
-            item.size.set(new_size);
+    .on_click_stop(move |_| {
+        if let Some(checked) = bool_state {
+            checked.update(|checked| {
+                *checked = !*checked;
+            });
         }
     })
     .style(move |s| {
-        let config = config.get();
-        s.flex_col()
-            .padding(14.0)
-            .min_width_pct(100.0)
-            .border(1.0)
-            .border_radius(8.0)
-            .border_color(config.color(LapceColor::LAPCE_BORDER))
-            .background(config.color(LapceColor::PANEL_BACKGROUND))
+        s.width_pct(100.0)
+            .items_center()
+            .col_gap(16.0)
+            .padding_horiz(14.0)
+            .padding_vert(12.0)
+            .apply_if(has_bool, |s| s.cursor(CursorStyle::Pointer))
+            .hover(|s| {
+                s.background(
+                    config.get().color(LapceColor::PANEL_HOVERED_BACKGROUND),
+                )
+            })
     })
     .into_any()
 }
@@ -1029,6 +1162,56 @@ pub fn checkbox(
             .border(1.)
             .border_radius(2.)
     })
+}
+
+/// Animated switch, mirroring the Cursor IDE settings toggles. The knob slides
+/// with a short eased transition when the value flips.
+pub fn toggle_switch(
+    checked: impl Fn() -> bool + 'static,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> impl View {
+    const KNOB: f64 = 14.0;
+    const INSET: f64 = 2.0;
+    const TRACK_W: f64 = 34.0;
+    const TRACK_H: f64 = 18.0;
+
+    let checked = Rc::new(checked);
+
+    container(empty().style({
+        let checked = checked.clone();
+        move |s| {
+            let config = config.get();
+            s.size(KNOB, KNOB)
+                .border_radius(KNOB / 2.0)
+                .background(config.color(LapceColor::EDITOR_BACKGROUND))
+                .box_shadow_blur(1.0)
+                .box_shadow_color(config.color(LapceColor::LAPCE_DROPDOWN_SHADOW))
+                .margin_left(if checked() {
+                    TRACK_W - KNOB - INSET
+                } else {
+                    INSET
+                })
+                .transition(
+                    MarginLeft,
+                    Transition::ease_in_out(StdDuration::from_millis(140)),
+                )
+        }
+    }))
+    .style(move |s| {
+        let config = config.get();
+        s.size(TRACK_W, TRACK_H)
+            .items_center()
+            .border_radius(TRACK_H / 2.0)
+            .background(if checked() {
+                config.color(LapceColor::EDITOR_FOCUS)
+            } else {
+                config.color(LapceColor::LAPCE_BORDER)
+            })
+            .transition_background(Transition::ease_in_out(
+                StdDuration::from_millis(140),
+            ))
+    })
+    .style(|s| s.cursor(CursorStyle::Pointer))
 }
 
 struct BTreeMapVirtualList(BTreeMap<String, String>);
@@ -1428,6 +1611,446 @@ pub fn theme_color_settings_view(
         editors.remove(search_editor_id);
     })
     .debug_name("Theme Color Settings")
+}
+
+/// A titled card wrapper used by the dynamic (add/remove) list editors.
+fn build_card(
+    title: String,
+    subtitle: String,
+    body: AnyView,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> AnyView {
+    let subtitle_empty = subtitle.is_empty();
+    stack((
+        stack((
+            label(move || title.clone()).style(move |s| {
+                s.font_bold()
+                    .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
+            }),
+            label(move || subtitle.clone()).style(move |s| {
+                s.margin_top(2.0)
+                    .font_size((config.get().ui.font_size() as f32 - 1.0).max(11.0))
+                    .color(config.get().color(LapceColor::EDITOR_DIM))
+                    .apply_if(subtitle_empty, |s| s.hide())
+            }),
+        ))
+        .style(|s| s.flex_col().padding_horiz(14.0).padding_vert(12.0)),
+        body,
+    ))
+    .style(move |s| {
+        s.flex_col()
+            .width_pct(100.0)
+            .border(1.0)
+            .border_radius(8.0)
+            .border_color(config.get().color(LapceColor::LAPCE_BORDER))
+            .background(config.get().color(LapceColor::PANEL_BACKGROUND))
+    })
+    .into_any()
+}
+
+fn icon_button(
+    icon: &'static str,
+    title: &'static str,
+    on_click: impl Fn() + 'static,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> AnyView {
+    container(svg(move || config.get().ui_svg(icon)).style(move |s| {
+        let size = config.get().ui.icon_size() as f32;
+        s.size(size, size)
+            .color(config.get().color(LapceColor::LAPCE_ICON_ACTIVE))
+    }))
+    .on_click_stop(move |_| on_click())
+    .style(move |s| {
+        let config = config.get();
+        s.padding(5.0)
+            .border_radius(6.0)
+            .cursor(CursorStyle::Pointer)
+            .hover(|s| {
+                s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+            })
+    })
+    .debug_name(title)
+    .into_any()
+}
+
+/// Dynamic editor for the `ai.extra-models` comma separated list. Each row is a
+/// text input plus a remove button; new rows append on demand.
+fn extra_models_editor(
+    editors: Editors,
+    settings_data: SettingsData,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> AnyView {
+    let common = settings_data.common.clone();
+    let models: RwSignal<Vec<(u64, String)>> = create_rw_signal(
+        parse_list(&common.config.get_untracked().ai.extra_models)
+            .into_iter()
+            .enumerate()
+            .map(|(i, m)| (i as u64, m))
+            .collect(),
+    );
+    let next_id = create_rw_signal(models.with_untracked(|m| m.len() as u64));
+
+    let rows = dyn_stack(
+        move || models.get(),
+        |(id, _)| *id,
+        move |(id, value)| {
+            let cx = Scope::current();
+            let input = TextInputBuilder::new().value(value.clone()).build(
+                cx,
+                editors,
+                common.clone(),
+            );
+            let doc = input.doc_signal();
+            create_effect(move |last| {
+                let doc = doc.get_untracked();
+                let rev = doc.buffer.with(|b| b.rev());
+                if last == Some(rev) || last.is_none() {
+                    return rev;
+                }
+                let text = doc.buffer.with_untracked(|b| b.to_string());
+                models.update(|models| {
+                    if let Some(entry) =
+                        models.iter_mut().find(|(rid, _)| *rid == id)
+                    {
+                        entry.1 = text;
+                    }
+                });
+                let snapshot = models.get_untracked();
+                persist_extra_models(&snapshot);
+                rev
+            });
+
+            stack((
+                input.keyboard_navigable().style(move |s| {
+                    s.width(260.0)
+                        .border(1.0)
+                        .border_radius(6.0)
+                        .border_color(config.get().color(LapceColor::LAPCE_BORDER))
+                        .focus(|s| {
+                            s.border_color(
+                                config.get().color(LapceColor::EDITOR_FOCUS),
+                            )
+                        })
+                }),
+                icon_button(
+                    LapceIcons::CLOSE,
+                    "Remove",
+                    move || {
+                        models.update(|models| models.retain(|(rid, _)| *rid != id));
+                        models.with_untracked(|m| persist_extra_models(m));
+                    },
+                    config,
+                ),
+            ))
+            .style(|s| {
+                s.items_center()
+                    .col_gap(8.0)
+                    .padding_horiz(14.0)
+                    .padding_vert(6.0)
+            })
+        },
+    )
+    .style(|s| s.flex_col().width_pct(100.0));
+
+    let add =
+        container(label(|| "+ Add model".to_string()).style(move |s| {
+            s.color(config.get().color(LapceColor::EDITOR_FOREGROUND))
+        }))
+        .on_click_stop(move |_| {
+            let id = next_id.get_untracked();
+            next_id.set(id + 1);
+            models.update(|models| models.push((id, String::new())));
+        })
+        .style(move |s| {
+            let config = config.get();
+            s.padding_horiz(14.0)
+                .padding_vert(10.0)
+                .border_top(1.0)
+                .border_color(config.color(LapceColor::LAPCE_BORDER))
+                .cursor(CursorStyle::Pointer)
+                .hover(|s| {
+                    s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+                })
+        });
+
+    let empty_hint = label(|| "No extra models yet".to_string()).style(move |s| {
+        s.padding_horiz(14.0)
+            .padding_vert(8.0)
+            .font_size((config.get().ui.font_size() as f32 - 1.0).max(11.0))
+            .color(config.get().color(LapceColor::EDITOR_DIM))
+            .apply_if(!models.with(|m| m.is_empty()), |s| s.hide())
+    });
+
+    let body = stack((rows, empty_hint, add))
+        .style(|s| s.flex_col().width_pct(100.0))
+        .into_any();
+
+    build_card(
+        "Extra Models".to_string(),
+        "Additional model ids available in the picker (one per row)".to_string(),
+        body,
+        config,
+    )
+}
+
+/// Dynamic editor for the `ai.mcp-servers` list. Mirrors Cursor's MCP server
+/// table: name, command, args, and an enabled toggle, with add/remove.
+fn mcp_servers_editor(
+    editors: Editors,
+    settings_data: SettingsData,
+    config: ReadSignal<Arc<LapceConfig>>,
+) -> AnyView {
+    let common = settings_data.common.clone();
+    let servers: RwSignal<Vec<(u64, McpServerConfig)>> = create_rw_signal(
+        common
+            .config
+            .get_untracked()
+            .ai
+            .mcp_servers
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, s)| (i as u64, s))
+            .collect(),
+    );
+    let next_id = create_rw_signal(servers.with_untracked(|s| s.len() as u64));
+
+    let rows = dyn_stack(
+        move || servers.get(),
+        |(id, _)| *id,
+        move |(id, server)| {
+            let cx = Scope::current();
+            let name_input = TextInputBuilder::new()
+                .value(server.name.clone())
+                .build(cx, editors, common.clone());
+            let name_doc = name_input.doc_signal();
+            create_effect(move |last| {
+                let doc = name_doc.get_untracked();
+                let rev = doc.buffer.with(|b| b.rev());
+                if last.is_none() || last == Some(rev) {
+                    return rev;
+                }
+                let text = doc.buffer.with_untracked(|b| b.to_string());
+                servers.update(|servers| {
+                    if let Some(entry) =
+                        servers.iter_mut().find(|(sid, _)| *sid == id)
+                    {
+                        entry.1.name = text;
+                    }
+                });
+                let snapshot = servers.get_untracked();
+                persist_mcp_servers(&snapshot);
+                rev
+            });
+
+            let command_input = TextInputBuilder::new()
+                .value(server.command.clone())
+                .build(cx, editors, common.clone());
+            let command_doc = command_input.doc_signal();
+            create_effect(move |last| {
+                let doc = command_doc.get_untracked();
+                let rev = doc.buffer.with(|b| b.rev());
+                if last.is_none() || last == Some(rev) {
+                    return rev;
+                }
+                let text = doc.buffer.with_untracked(|b| b.to_string());
+                servers.update(|servers| {
+                    if let Some(entry) =
+                        servers.iter_mut().find(|(sid, _)| *sid == id)
+                    {
+                        entry.1.command = text;
+                    }
+                });
+                let snapshot = servers.get_untracked();
+                persist_mcp_servers(&snapshot);
+                rev
+            });
+
+            let args_input = TextInputBuilder::new()
+                .value(server.args.join(" "))
+                .build(cx, editors, common.clone());
+            let args_doc = args_input.doc_signal();
+            create_effect(move |last| {
+                let doc = args_doc.get_untracked();
+                let rev = doc.buffer.with(|b| b.rev());
+                if last.is_none() || last == Some(rev) {
+                    return rev;
+                }
+                let text = doc.buffer.with_untracked(|b| b.to_string());
+                servers.update(|servers| {
+                    if let Some(entry) =
+                        servers.iter_mut().find(|(sid, _)| *sid == id)
+                    {
+                        entry.1.args =
+                            text.split_whitespace().map(|a| a.to_string()).collect();
+                    }
+                });
+                let snapshot = servers.get_untracked();
+                persist_mcp_servers(&snapshot);
+                rev
+            });
+
+            let enabled = create_rw_signal(server.enabled);
+            create_effect(move |last| {
+                let enabled = enabled.get();
+                if last.is_none() {
+                    return;
+                }
+                servers.update(|servers| {
+                    if let Some(entry) =
+                        servers.iter_mut().find(|(sid, _)| *sid == id)
+                    {
+                        entry.1.enabled = enabled;
+                    }
+                });
+                let snapshot = servers.get_untracked();
+                persist_mcp_servers(&snapshot);
+            });
+
+            let field = |label_text: String, view: AnyView| -> AnyView {
+                stack((
+                    label(move || label_text.clone()).style(move |s| {
+                        s.width(70.0)
+                            .font_size(
+                                (config.get().ui.font_size() as f32 - 1.0).max(11.0),
+                            )
+                            .color(config.get().color(LapceColor::EDITOR_DIM))
+                    }),
+                    view,
+                ))
+                .style(|s| {
+                    s.items_center().col_gap(8.0).flex_grow(1.0).min_width(0.0)
+                })
+                .into_any()
+            };
+
+            stack((
+                container(toggle_switch(move || enabled.get(), config))
+                    .style(|s| s.items_center()),
+                field(
+                    "Name".to_string(),
+                    name_input
+                        .keyboard_navigable()
+                        .style(move |s| {
+                            s.width_pct(100.0)
+                                .border(1.0)
+                                .border_radius(6.0)
+                                .border_color(
+                                    config.get().color(LapceColor::LAPCE_BORDER),
+                                )
+                        })
+                        .into_any(),
+                ),
+                field(
+                    "Command".to_string(),
+                    command_input
+                        .keyboard_navigable()
+                        .style(move |s| {
+                            s.width_pct(100.0)
+                                .border(1.0)
+                                .border_radius(6.0)
+                                .border_color(
+                                    config.get().color(LapceColor::LAPCE_BORDER),
+                                )
+                        })
+                        .into_any(),
+                ),
+                field(
+                    "Args".to_string(),
+                    args_input
+                        .keyboard_navigable()
+                        .style(move |s| {
+                            s.width_pct(100.0)
+                                .border(1.0)
+                                .border_radius(6.0)
+                                .border_color(
+                                    config.get().color(LapceColor::LAPCE_BORDER),
+                                )
+                        })
+                        .into_any(),
+                ),
+                icon_button(
+                    LapceIcons::CLOSE,
+                    "Remove",
+                    move || {
+                        servers
+                            .update(|servers| servers.retain(|(sid, _)| *sid != id));
+                        let snapshot = servers.get_untracked();
+                        persist_mcp_servers(&snapshot);
+                    },
+                    config,
+                ),
+            ))
+            .style(|s| {
+                s.items_center()
+                    .col_gap(8.0)
+                    .padding_horiz(14.0)
+                    .padding_vert(6.0)
+            })
+        },
+    )
+    .style(|s| s.flex_col().width_pct(100.0));
+
+    let empty_hint =
+        label(|| "No MCP servers configured".to_string()).style(move |s| {
+            s.padding_horiz(14.0)
+                .padding_vert(8.0)
+                .font_size((config.get().ui.font_size() as f32 - 1.0).max(11.0))
+                .color(config.get().color(LapceColor::EDITOR_DIM))
+                .apply_if(!servers.with(|s| s.is_empty()), |s| s.hide())
+        });
+
+    let add =
+        container(label(|| "+ Add server".to_string()).style(move |s| {
+            s.color(config.get().color(LapceColor::EDITOR_FOREGROUND))
+        }))
+        .on_click_stop(move |_| {
+            let id = next_id.get_untracked();
+            next_id.set(id + 1);
+            servers.update(|servers| servers.push((id, McpServerConfig::default())));
+        })
+        .style(move |s| {
+            let config = config.get();
+            s.padding_horiz(14.0)
+                .padding_vert(10.0)
+                .border_top(1.0)
+                .border_color(config.color(LapceColor::LAPCE_BORDER))
+                .cursor(CursorStyle::Pointer)
+                .hover(|s| {
+                    s.background(config.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+                })
+        });
+
+    let body = stack((rows, empty_hint, add))
+        .style(|s| s.flex_col().width_pct(100.0))
+        .into_any();
+
+    build_card(
+        "MCP Servers".to_string(),
+        "Model Context Protocol servers exposed to the agent".to_string(),
+        body,
+        config,
+    )
+}
+
+/// Persist the MCP server list into the `ai.mcp-servers` toml array.
+fn persist_mcp_servers(servers: &[(u64, McpServerConfig)]) {
+    let list: Vec<serde_json::Value> = servers
+        .iter()
+        .map(|(_, s)| {
+            serde_json::json!({
+                "name": s.name,
+                "command": s.command,
+                "args": s.args,
+                "enabled": s.enabled,
+            })
+        })
+        .collect();
+    if let Ok(value) =
+        serde::Serialize::serialize(&list, toml_edit::ser::ValueSerializer::new())
+    {
+        LapceConfig::update_file("ai", "mcp-servers", value);
+    }
 }
 
 fn dropdown_view(
