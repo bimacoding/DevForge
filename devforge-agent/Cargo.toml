@@ -9,7 +9,7 @@ rust-version = { workspace = true }
 
 [dependencies]
 anyhow     = { workspace = true }
-dirs       = "5.0.1"
+dirs       = "7.0.0"
 regex      = { workspace = true }
 reqwest    = { workspace = true }
 serde      = { workspace = true, features = ["derive"] }
